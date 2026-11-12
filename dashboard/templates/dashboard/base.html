@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Market Intelligence Platform{% endblock %}</title>
+  <!-- Tailwind CSS via allowlisted CDN -->
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+</head>
+<body class="h-full flex flex-col font-sans antialiased bg-slate-950 text-slate-100">
+  <!-- Top Navigation Bar -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-bold text-white shadow-lg">
+          MI
+        </div>
+        <div>
+          <span class="font-bold text-base tracking-tight text-white">Market Intel</span>
+          <span class="text-xs px-2 py-0.5 ml-2 rounded bg-blue-500/20 text-blue-400 font-mono">v1.0</span>
+        </div>
+      </div>
+      
+      <!-- Nav Links -->
+      <nav class="hidden md:flex items-center space-x-1 text-sm font-medium">
+        <a href="{% url 'dashboard_overview' %}" class="px-3 py-2 rounded-md hover:bg-slate-800 transition text-slate-200">Overview</a>
+        <a href="{% url 'dashboard_sources' %}" class="px-3 py-2 rounded-md hover:bg-slate-800 transition text-slate-200">Sources</a>
+        <a href="{% url 'dashboard_items' %}" class="px-3 py-2 rounded-md hover:bg-slate-800 transition text-slate-200">Intelligence</a>
+        <a href="{% url 'dashboard_publishing' %}" class="px-3 py-2 rounded-md hover:bg-slate-800 transition text-slate-200">Publishing</a>
+        <a href="{% url 'dashboard_ai_settings' %}" class="px-3 py-2 rounded-md hover:bg-slate-800 transition text-slate-200">AI Engine</a>
+        <a href="{% url 'dashboard_health' %}" class="px-3 py-2 rounded-md hover:bg-slate-800 transition text-slate-200">System Health</a>
+      </nav>
+
+      <!-- Right Action -->
+      <div class="flex items-center space-x-3">
+        <a href="/api/v1/" target="_blank" class="text-xs px-2.5 py-1.5 rounded border border-slate-700 bg-slate-800 text-slate-300 hover:text-white transition">
+          REST API ↗
+        </a>
+        <span class="inline-flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/20">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          Live Ingestion
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Messages / Flash Alerts -->
+  {% if messages %}
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+    {% for message in messages %}
+    <div class="p-3 mb-2 rounded-lg text-xs font-medium border flex items-center justify-between
+      {% if message.tags == 'success' %} bg-emerald-500/10 text-emerald-300 border-emerald-500/30
+      {% elif message.tags == 'warning' %} bg-amber-500/10 text-amber-300 border-amber-500/30
+      {% elif message.tags == 'error' %} bg-rose-500/10 text-rose-300 border-rose-500/30
+      {% else %} bg-blue-500/10 text-blue-300 border-blue-500/30 {% endif %}">
+      <span>{{ message }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800 py-4 bg-slate-950 text-slate-500 text-xs text-center">
+    Market Intelligence Platform &bull; Modular Clean Architecture &bull; cPanel & VPS Dual-Mode Engine
+  </footer>
+</body>
+</html>

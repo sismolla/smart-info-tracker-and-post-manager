@@ -1,0 +1,51 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}AI Intelligence Engine - Market Intelligence{% endblock %}
+
+{% block content %}
+<div class="space-y-6 max-w-4xl mx-auto">
+  <div class="pb-4 border-b border-slate-800">
+    <h2 class="text-lg font-bold text-white">AI Engine Configuration & Metrics</h2>
+    <p class="text-xs text-slate-400">Google Gemini API integration, prompt tuning, and token cost controls</p>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+      <span class="text-xs text-slate-400">AI Provider</span>
+      <div class="mt-1 flex items-center gap-2">
+        <span class="text-lg font-bold text-white">Google Gemini</span>
+        <span class="w-2 h-2 rounded-full {% if has_gemini_key %}bg-emerald-400{% else %}bg-amber-400{% endif %}"></span>
+      </div>
+      <p class="text-[11px] text-slate-500 mt-1">{% if has_gemini_key %}API Key Active{% else %}Rule-based Heuristic Fallback Active{% endif %}</p>
+    </div>
+
+    <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+      <span class="text-xs text-slate-400">Active Model</span>
+      <div class="text-lg font-bold text-white font-mono mt-1">{{ model_name }}</div>
+      <p class="text-[11px] text-slate-500 mt-1">Structured JSON schema output</p>
+    </div>
+
+    <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+      <span class="text-xs text-slate-400">Analyzed Items</span>
+      <div class="text-lg font-bold text-white font-mono mt-1">{{ analyzed_count }}</div>
+      <p class="text-[11px] text-slate-500 mt-1">Avg relevance: {{ avg_score }}/100</p>
+    </div>
+  </div>
+
+  <!-- Prompt & Taxonomy Details -->
+  <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-4">
+    <h3 class="text-sm font-bold text-white">Configured Classification Taxonomies</h3>
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">🏥 Healthcare News</div>
+      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">💊 Pharmaceutical Info</div>
+      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">🔬 Medical Equipment</div>
+      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">📑 Tenders & Procurement</div>
+      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">💼 Job Opportunities</div>
+      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">🚀 Product Announcements</div>
+      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">📈 Market Trends</div>
+      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">🤝 Business Opportunities</div>
+      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">🏛️ Government Announcements</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,146 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Intelligence Repository - Market Intelligence{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <!-- Search & Filters Header -->
+  <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60 shadow space-y-3">
+    <form method="GET" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+      <!-- Search Input -->
+      <div class="lg:col-span-2">
+        <label class="block text-slate-400 font-medium mb-1">Search Keywords</label>
+        <input type="text" name="q" value="{{ search_query }}" placeholder="Filter by organization, title, tender, etc." class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+      </div>
+
+      <!-- Category Filter -->
+      <div>
+        <label class="block text-slate-400 font-medium mb-1">Category</label>
+        <select name="category" onchange="this.form.submit()" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white">
+          <option value="">All Categories</option>
+          {% for cat in categories %}
+          <option value="{{ cat.slug }}" {% if selected_cat == cat.slug %}selected{% endif %}>{{ cat.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Status Filter -->
+      <div>
+        <label class="block text-slate-400 font-medium mb-1">Status</label>
+        <select name="status" onchange="this.form.submit()" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white">
+          <option value="">All Statuses</option>
+          <option value="ai_processed" {% if selected_status == 'ai_processed' %}selected{% endif %}>Pending Review</option>
+          <option value="approved" {% if selected_status == 'approved' %}selected{% endif %}>Approved</option>
+          <option value="published" {% if selected_status == 'published' %}selected{% endif %}>Published</option>
+          <option value="rejected" {% if selected_status == 'rejected' %}selected{% endif %}>Rejected</option>
+          <option value="duplicate" {% if selected_status == 'duplicate' %}selected{% endif %}>Duplicate</option>
+        </select>
+      </div>
+
+      <!-- Submit / Reset -->
+      <div class="flex items-end gap-2">
+        <button type="submit" class="w-full px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold">
+          Apply Filter
+        </button>
+        <a href="{% url 'dashboard_items' %}" class="px-3 py-2 rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-white">
+          Reset
+        </a>
+      </div>
+    </form>
+  </div>
+
+  <!-- Items Table -->
+  <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow">
+    <table class="min-w-full divide-y divide-slate-800 text-left text-xs">
+      <thead class="bg-slate-800/60 text-slate-400 uppercase font-mono text-[11px]">
+        <tr>
+          <th class="px-4 py-3">Title & Summary</th>
+          <th class="px-4 py-3">Source & Date</th>
+          <th class="px-4 py-3">Category</th>
+          <th class="px-4 py-3">Key Entities</th>
+          <th class="px-4 py-3">Relevance</th>
+          <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3 text-right">Action</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800">
+        {% for item in items %}
+        <tr class="hover:bg-slate-800/30 transition">
+          <td class="px-4 py-3 max-w-sm">
+            <a href="{% url 'dashboard_item_detail' item.id %}" class="font-bold text-white hover:text-blue-400 transition block line-clamp-1">
+              {{ item.title }}
+            </a>
+            <p class="text-[11px] text-slate-400 line-clamp-2 mt-0.5">
+              {{ item.ai_analysis.short_summary|default:item.original_content }}
+            </p>
+          </td>
+
+          <td class="px-4 py-3 whitespace-nowrap">
+            <span class="text-slate-300 font-medium block">{{ item.source.name }}</span>
+            <span class="text-[10px] text-slate-500">{{ item.collected_at|date:"M d, H:i" }}</span>
+          </td>
+
+          <td class="px-4 py-3">
+            {% for cat in item.categories.all %}
+            <span class="inline-block px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold text-[10px] mr-1">
+              {{ cat.name }}
+            </span>
+            {% empty %}
+            <span class="text-slate-500">Uncategorized</span>
+            {% endfor %}
+          </td>
+
+          <td class="px-4 py-3 text-[11px] space-y-0.5">
+            {% if item.entities.organization %}
+            <div class="text-slate-300 font-semibold truncate max-w-[150px]">🏢 {{ item.entities.organization }}</div>
+            {% endif %}
+            {% if item.entities.phone_number %}
+            <div class="text-slate-400 font-mono">📞 {{ item.entities.phone_number }}</div>
+            {% endif %}
+            {% if item.entities.tender_deadline %}
+            <div class="text-amber-400 font-mono">⏰ {{ item.entities.tender_deadline }}</div>
+            {% endif %}
+          </td>
+
+          <td class="px-4 py-3 whitespace-nowrap">
+            {% if item.ai_analysis %}
+            <span class="font-mono font-bold px-2 py-0.5 rounded text-xs
+              {% if item.ai_analysis.relevance_score >= 75 %} bg-emerald-500/20 text-emerald-400
+              {% elif item.ai_analysis.relevance_score >= 50 %} bg-blue-500/20 text-blue-400
+              {% else %} bg-slate-800 text-slate-400 {% endif %}">
+              {{ item.ai_analysis.relevance_score }}%
+            </span>
+            {% else %}
+            <span class="text-slate-500 text-[11px]">Unscored</span>
+            {% endif %}
+          </td>
+
+          <td class="px-4 py-3 whitespace-nowrap">
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold
+              {% if item.status == 'approved' or item.status == 'published' %} bg-emerald-500/20 text-emerald-400
+              {% elif item.status == 'ai_processed' %} bg-amber-500/20 text-amber-400
+              {% elif item.status == 'duplicate' %} bg-purple-500/20 text-purple-400
+              {% elif item.status == 'rejected' %} bg-rose-500/20 text-rose-400
+              {% else %} bg-slate-800 text-slate-400 {% endif %}">
+              {{ item.get_status_display }}
+            </span>
+          </td>
+
+          <td class="px-4 py-3 text-right whitespace-nowrap">
+            <a href="{% url 'dashboard_item_detail' item.id %}" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs">
+              Review &rarr;
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="px-4 py-8 text-center text-slate-500 text-xs">
+            No intelligence items match the selected filter.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

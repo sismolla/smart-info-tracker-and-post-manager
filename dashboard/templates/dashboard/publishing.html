@@ -1,0 +1,89 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Publishing & Syndication - Market Intelligence{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
+    <div>
+      <h2 class="text-lg font-bold text-white">Publishing Pipeline & Webhook Syndication</h2>
+      <p class="text-xs text-slate-400">Manage real-time external distribution to partner applications and CRMs</p>
+    </div>
+    <button onclick="document.getElementById('add-webhook-modal').classList.remove('hidden')" class="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow">
+      + Register Webhook
+    </button>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Published Feed (2 Cols) -->
+    <div class="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+      <h3 class="text-sm font-bold text-white mb-3">Recent Publications</h3>
+      <div class="divide-y divide-slate-800 text-xs">
+        {% for pub in publications %}
+        <div class="py-3 flex items-center justify-between gap-4">
+          <div>
+            <span class="font-semibold text-slate-200 block">{{ pub.item.title }}</span>
+            <span class="text-[10px] text-slate-400">Via {{ pub.get_channel_display }} &bull; {{ pub.published_at|timesince }} ago</span>
+          </div>
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-400">
+            {{ pub.status|upper }}
+          </span>
+        </div>
+        {% empty %}
+        <p class="text-slate-500 py-6 text-center">No publications dispatched yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Active Webhooks (1 Col) -->
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
+      <h3 class="text-sm font-bold text-white">Subscribed Webhooks</h3>
+      <div class="space-y-2 text-xs">
+        {% for wh in webhooks %}
+        <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-white">{{ wh.name }}</span>
+            <span class="w-2 h-2 rounded-full {% if wh.is_active %}bg-emerald-400{% else %}bg-slate-500{% endif %}"></span>
+          </div>
+          <div class="text-[11px] font-mono text-slate-400 truncate mt-1">{{ wh.target_url }}</div>
+          <div class="text-[10px] text-slate-500 mt-1">HMAC SHA256 Signature Enabled</div>
+        </div>
+        {% empty %}
+        <p class="text-slate-500 py-4 text-center">No active webhooks configured.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Webhook Modal -->
+<div id="add-webhook-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
+    <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+      <h3 class="text-sm font-bold text-white">Register Outgoing Webhook</h3>
+      <button onclick="document.getElementById('add-webhook-modal').classList.add('hidden')" class="text-slate-400 hover:text-white">&times;</button>
+    </div>
+    
+    <form method="POST" class="space-y-3 text-xs">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add_webhook">
+      <div>
+        <label class="block text-slate-300 font-medium mb-1">Subscriber / App Name</label>
+        <input type="text" name="name" required placeholder="e.g. CRM Integration or Telegram Publisher" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white">
+      </div>
+      <div>
+        <label class="block text-slate-300 font-medium mb-1">Target Webhook URL</label>
+        <input type="url" name="target_url" required placeholder="https://api.yourdomain.com/webhooks/market-intel" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white font-mono">
+      </div>
+      <div>
+        <label class="block text-slate-300 font-medium mb-1">Secret Key (for HMAC Signature)</label>
+        <input type="text" name="secret_token" placeholder="Optional secret for X-Hub-Signature-256 verification" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white font-mono">
+      </div>
+      <div class="flex justify-end gap-2 pt-3 border-t border-slate-800">
+        <button type="button" onclick="document.getElementById('add-webhook-modal').classList.add('hidden')" class="px-3 py-1.5 rounded border border-slate-700 bg-slate-800 text-slate-300">Cancel</button>
+        <button type="submit" class="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold">Save Webhook</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

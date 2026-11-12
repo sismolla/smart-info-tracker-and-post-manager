@@ -1,0 +1,26 @@
+# Core Django & Framework
+Django>=5.0,<5.2
+djangorestframework>=3.14.0
+python-dotenv>=1.0.0
+cryptography>=42.0.0
+
+# HTTP & Web Scraping (cPanel-friendly)
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+feedparser>=6.0.10
+pypdf>=4.0.0
+
+# Social & Messaging Integrations
+telethon>=1.34.0
+
+# AI Services
+google-generativeai>=0.8.0
+
+# Optional Database Drivers for cPanel MySQL / MariaDB / PostgreSQL
+# Uncomment the driver appropriate for your host:
+# mysqlclient>=2.2.0     # For MySQL / MariaDB on cPanel
+# psycopg2-binary>=2.9.9 # For PostgreSQL on VPS
+
+# Optional Mode B (Dedicated VPS Workers with Celery & Redis)
+# celery>=5.3.6
+# redis>=5.0.0

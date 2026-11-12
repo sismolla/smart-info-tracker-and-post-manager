@@ -1,0 +1,162 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Dashboard Overview - Market Intelligence{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <!-- Top Stat Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <!-- Stat 1 -->
+    <div class="p-5 rounded-xl border border-slate-800 bg-slate-900/60 shadow-sm">
+      <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+        <span>Connected Sources</span>
+        <span class="p-1 rounded bg-blue-500/10 text-blue-400">Sources</span>
+      </div>
+      <div class="mt-2 flex items-baseline gap-2">
+        <span class="text-2xl font-bold text-white">{{ active_sources }}</span>
+        <span class="text-xs text-slate-500">/ {{ total_sources }} active</span>
+      </div>
+      <div class="mt-3 text-[11px] text-slate-400">Telegram, FB, LinkedIn, Portals</div>
+    </div>
+
+    <!-- Stat 2 -->
+    <div class="p-5 rounded-xl border border-slate-800 bg-slate-900/60 shadow-sm">
+      <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+        <span>Total Intelligence Collected</span>
+        <span class="p-1 rounded bg-indigo-500/10 text-indigo-400">Items</span>
+      </div>
+      <div class="mt-2 flex items-baseline gap-2">
+        <span class="text-2xl font-bold text-white">{{ total_items }}</span>
+        <span class="text-xs text-emerald-400 font-medium">+{{ today_items }} today</span>
+      </div>
+      <div class="mt-3 text-[11px] text-slate-400">All sources aggregated</div>
+    </div>
+
+    <!-- Stat 3 -->
+    <div class="p-5 rounded-xl border border-slate-800 bg-slate-900/60 shadow-sm">
+      <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+        <span>Awaiting Approval</span>
+        <span class="p-1 rounded bg-amber-500/10 text-amber-400">Review</span>
+      </div>
+      <div class="mt-2 flex items-baseline gap-2">
+        <span class="text-2xl font-bold text-amber-400">{{ pending_approval }}</span>
+        <span class="text-xs text-slate-500">pending editorial</span>
+      </div>
+      <div class="mt-3 text-[11px] text-slate-400">Curated & scored by AI</div>
+    </div>
+
+    <!-- Stat 4 -->
+    <div class="p-5 rounded-xl border border-slate-800 bg-slate-900/60 shadow-sm">
+      <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+        <span>Duplicates Filtered</span>
+        <span class="p-1 rounded bg-purple-500/10 text-purple-400">Dedup</span>
+      </div>
+      <div class="mt-2 flex items-baseline gap-2">
+        <span class="text-2xl font-bold text-purple-400">{{ duplicates_detected }}</span>
+        <span class="text-xs text-slate-500">cross-posts detected</span>
+      </div>
+      <div class="mt-3 text-[11px] text-slate-400">Saved LLM & storage overhead</div>
+    </div>
+  </div>
+
+  <!-- Middle Grid: Recent Intelligence & Category Breakdown -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Left Column: Recent High-Value Intelligence -->
+    <div class="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div>
+          <h3 class="text-sm font-bold text-white">Latest Intelligence Stream</h3>
+          <p class="text-xs text-slate-400">Recent announcements processed by Gemini AI</p>
+        </div>
+        <a href="{% url 'dashboard_items' %}" class="text-xs text-blue-400 hover:text-blue-300">View All &rarr;</a>
+      </div>
+
+      <div class="divide-y divide-slate-800 mt-2">
+        {% for item in recent_items %}
+        <div class="py-3 flex items-start justify-between gap-4">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                {{ item.source.name }}
+              </span>
+              {% for cat in item.categories.all %}
+              <span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/20 text-blue-300">
+                {{ cat.name }}
+              </span>
+              {% endfor %}
+              <span class="text-[11px] text-slate-500">{{ item.collected_at|timesince }} ago</span>
+            </div>
+            <a href="{% url 'dashboard_item_detail' item.id %}" class="text-sm font-semibold text-slate-100 hover:text-blue-400 transition block">
+              {{ item.title }}
+            </a>
+            <p class="text-xs text-slate-400 line-clamp-1">
+              {{ item.ai_analysis.short_summary|default:item.original_content }}
+            </p>
+          </div>
+          <div class="text-right flex-shrink-0">
+            {% if item.ai_analysis %}
+            <span class="inline-block text-xs font-mono font-bold px-2 py-1 rounded 
+              {% if item.ai_analysis.relevance_score >= 75 %} bg-emerald-500/20 text-emerald-400
+              {% elif item.ai_analysis.relevance_score >= 50 %} bg-blue-500/20 text-blue-400
+              {% else %} bg-slate-800 text-slate-400 {% endif %}">
+              {{ item.ai_analysis.relevance_score }} / 100
+            </span>
+            {% endif %}
+          </div>
+        </div>
+        {% empty %}
+        <div class="py-8 text-center text-xs text-slate-500">
+          No items collected yet. Check source synchronization.
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Right Column: Categories & Collection Runs -->
+    <div class="space-y-6">
+      <!-- Category Distribution -->
+      <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+        <h3 class="text-sm font-bold text-white mb-3">Top Intelligence Categories</h3>
+        <div class="space-y-2">
+          {% for cat in categories %}
+          <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-800/60">
+            <span class="text-slate-300 font-medium">{{ cat.name }}</span>
+            <span class="font-mono text-slate-400 px-2 py-0.5 rounded bg-slate-800">{{ cat.item_count }}</span>
+          </div>
+          {% empty %}
+          <p class="text-xs text-slate-500">No categories active yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Recent Collection Runs -->
+      <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-bold text-white">Cron Sync Activity</h3>
+          <span class="text-[10px] text-slate-400">cPanel Mode</span>
+        </div>
+        <div class="space-y-2">
+          {% for run in recent_runs %}
+          <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-800/60">
+            <div class="truncate max-w-[150px]">
+              <span class="font-medium text-slate-200 block truncate">{{ run.source.name }}</span>
+              <span class="text-[10px] text-slate-500">{{ run.started_at|timesince }} ago</span>
+            </div>
+            <div class="text-right">
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold
+                {% if run.status == 'success' %} bg-emerald-500/20 text-emerald-400
+                {% elif run.status == 'failed' %} bg-rose-500/20 text-rose-400
+                {% else %} bg-blue-500/20 text-blue-400 {% endif %}">
+                +{{ run.items_saved }} items
+              </span>
+            </div>
+          </div>
+          {% empty %}
+          <p class="text-xs text-slate-500">No collection runs logged yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,70 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}System Health & cPanel Diagnostics{% endblock %}
+
+{% block content %}
+<div class="space-y-6 max-w-4xl mx-auto">
+  <div class="pb-4 border-b border-slate-800">
+    <h2 class="text-lg font-bold text-white">System Health & cPanel Diagnostic Status</h2>
+    <p class="text-xs text-slate-400">Environment verification, storage writeability, and database lock monitor</p>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+      <span class="text-xs text-slate-400">Execution Mode</span>
+      <div class="text-base font-bold text-blue-400 font-mono mt-1">{{ execution_mode }}</div>
+      <p class="text-[11px] text-slate-500 mt-1">cPanel Cron Scheduled</p>
+    </div>
+
+    <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+      <span class="text-xs text-slate-400">Batch Limit</span>
+      <div class="text-base font-bold text-white font-mono mt-1">{{ batch_limit }} items / run</div>
+      <p class="text-[11px] text-slate-500 mt-1">Guards against OOM kills</p>
+    </div>
+
+    <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+      <span class="text-xs text-slate-400">Disk Space</span>
+      <div class="text-base font-bold text-emerald-400 font-mono mt-1">{{ free_disk_gb }} GB free</div>
+      <p class="text-[11px] text-slate-500 mt-1">of {{ total_disk_gb }} GB total</p>
+    </div>
+
+    <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+      <span class="text-xs text-slate-400">Media Storage</span>
+      <div class="text-base font-bold {% if media_writable %}text-emerald-400{% else %}text-rose-400{% endif %} mt-1">
+        {% if media_writable %}Writable (OK){% else %}Read-Only (Error){% endif %}
+      </div>
+      <p class="text-[11px] text-slate-500 mt-1">Local media folder</p>
+    </div>
+  </div>
+
+  <!-- Active Locks Table -->
+  <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-3">
+    <div class="flex items-center justify-between">
+      <h3 class="text-sm font-bold text-white">cPanel Cron Distributed Locks</h3>
+      <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">DatabaseLock Table</span>
+    </div>
+    <div class="divide-y divide-slate-800 text-xs">
+      {% for lock in active_locks %}
+      <div class="py-2.5 flex items-center justify-between">
+        <div>
+          <span class="font-mono text-amber-400 font-bold block">{{ lock.lock_key }}</span>
+          <span class="text-[10px] text-slate-500">Held by {{ lock.holder_pid }}</span>
+        </div>
+        <span class="text-slate-400">Expires: {{ lock.expires_at|time:"H:i:s" }}</span>
+      </div>
+      {% empty %}
+      <div class="py-4 text-center text-slate-500 text-xs">
+        No active locks. System idle and ready for next scheduled cron.
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Cron Configuration Snippet for cPanel -->
+  <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-2">
+    <h3 class="text-sm font-bold text-white">Recommended cPanel Cron Job Command</h3>
+    <p class="text-xs text-slate-400">Add this line to your cPanel "Cron Jobs" interface (e.g. Every 15 minutes):</p>
+    <pre class="bg-black/60 p-3 rounded-lg text-emerald-400 font-mono text-xs overflow-x-auto select-all">*/15 * * * * cd /home/username/public_html && /home/username/virtualenv/public_html/3.11/bin/python manage.py run_collection_batch >> /home/username/cron.log 2>&1</pre>
+  </div>
+</div>
+{% endblock %}
