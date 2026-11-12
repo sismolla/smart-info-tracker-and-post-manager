@@ -22,19 +22,21 @@ def calculate_relevance_score(item, extracted_entities=None) -> Dict[str, Any]:
         source_score += 5.0
     factors['source_reliability'] = round(source_score, 1)
 
-    # 2. Information Completeness (0 - 25)
+    # 2. Information Completeness & Verifiability (0 - 25)
     completeness_score = 0.0
     if extracted_entities:
-        if extracted_entities.organization:
-            completeness_score += 6.0
-        if extracted_entities.phone_number or extracted_entities.email:
-            completeness_score += 6.0
-        if extracted_entities.tender_deadline or extracted_entities.application_deadline:
-            completeness_score += 7.0
-        if extracted_entities.price or extracted_entities.product_or_service:
-            completeness_score += 6.0
+        if getattr(extracted_entities, 'organization', None):
+            completeness_score += 5.0
+        if getattr(extracted_entities, 'reference_number', None):
+            completeness_score += 6.0 # Official verifiable reference number
+        if getattr(extracted_entities, 'phone_number', None) or getattr(extracted_entities, 'email', None):
+            completeness_score += 4.0
+        if getattr(extracted_entities, 'deadline_iso', None) or getattr(extracted_entities, 'tender_deadline', None) or getattr(extracted_entities, 'application_deadline', None):
+            completeness_score += 5.0
+        if getattr(extracted_entities, 'estimated_budget', None) or getattr(extracted_entities, 'bid_bond_amount', None) or getattr(extracted_entities, 'salary_min', None) or getattr(extracted_entities, 'price', None):
+            completeness_score += 5.0
     else:
-        # Check text length and links if entities not yet extracted
+        # Fallback if entities not yet processed
         if len(item.original_content) > 200:
             completeness_score += 15.0
         if item.canonical_url:

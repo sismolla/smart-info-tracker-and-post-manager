@@ -94,10 +94,19 @@
             {% if item.entities.organization %}
             <div class="text-slate-300 font-semibold truncate max-w-[150px]">🏢 {{ item.entities.organization }}</div>
             {% endif %}
-            {% if item.entities.phone_number %}
-            <div class="text-slate-400 font-mono">📞 {{ item.entities.phone_number }}</div>
+            {% if item.entities.reference_number %}
+            <div class="text-blue-400 font-mono text-[10px]">🏷️ {{ item.entities.reference_number }}</div>
             {% endif %}
-            {% if item.entities.tender_deadline %}
+            {% if item.entities.estimated_budget %}
+            <div class="text-emerald-400 font-mono font-bold">💰 {{ item.entities.estimated_budget }}</div>
+            {% elif item.entities.salary_min %}
+            <div class="text-blue-300 font-mono">💵 {{ item.entities.salary_min }}</div>
+            {% elif item.entities.bid_bond_amount %}
+            <div class="text-amber-300 font-mono">🛡️ {{ item.entities.bid_bond_amount }}</div>
+            {% endif %}
+            {% if item.entities.deadline_iso %}
+            <div class="text-amber-400 font-mono">⏰ {{ item.entities.deadline_iso }}</div>
+            {% elif item.entities.tender_deadline %}
             <div class="text-amber-400 font-mono">⏰ {{ item.entities.tender_deadline }}</div>
             {% endif %}
           </td>

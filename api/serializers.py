@@ -17,9 +17,12 @@ class ExtractedEntitySerializer(serializers.ModelSerializer):
     class Meta:
         model = ExtractedEntity
         fields = [
-            'organization', 'contact_person', 'phone_number', 'email',
-            'location', 'product_or_service', 'price',
-            'application_deadline', 'tender_deadline', 'opportunity_type', 'keywords'
+            'organization', 'reference_number', 'contact_person', 'phone_number', 'email',
+            'location', 'product_or_service', 'opportunity_type',
+            'estimated_budget', 'bid_bond_amount', 'document_fee',
+            'salary_min', 'salary_max', 'currency',
+            'deadline_iso', 'deadline_original',
+            'price', 'tender_deadline', 'application_deadline', 'keywords'
         ]
 
 class AIAnalysisSerializer(serializers.ModelSerializer):

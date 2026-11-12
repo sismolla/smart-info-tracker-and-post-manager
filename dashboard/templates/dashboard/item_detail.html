@@ -143,14 +143,60 @@
       </div>
       {% endif %}
 
-      <!-- Structured Entities -->
+      <!-- Structured Entities & Financial Disambiguation -->
       <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-3">
-        <h3 class="text-sm font-bold text-white">Extracted Business Entities</h3>
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <h3 class="text-sm font-bold text-white">Parsed Entities & Financials</h3>
+          {% if item.entities.reference_number %}
+          <span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold">
+            Ref: {{ item.entities.reference_number }}
+          </span>
+          {% endif %}
+        </div>
         <div class="space-y-2 text-xs">
           <div class="py-1 border-b border-slate-800/40">
             <span class="text-slate-500 block text-[10px] uppercase">Organization</span>
             <span class="text-slate-200 font-medium">{{ item.entities.organization|default:"None identified" }}</span>
           </div>
+
+          <!-- Structured Financial Breakdown -->
+          {% if item.entities.estimated_budget %}
+          <div class="py-1 border-b border-slate-800/40 bg-emerald-950/20 -mx-2 px-2 rounded">
+            <span class="text-emerald-400 block text-[10px] uppercase font-bold">Estimated Contract Budget</span>
+            <span class="text-emerald-300 font-mono text-sm font-bold">{{ item.entities.estimated_budget }}</span>
+          </div>
+          {% endif %}
+
+          {% if item.entities.bid_bond_amount %}
+          <div class="py-1 border-b border-slate-800/40">
+            <span class="text-slate-400 block text-[10px] uppercase">Bid Security / CPO Required</span>
+            <span class="text-amber-300 font-mono font-semibold">{{ item.entities.bid_bond_amount }}</span>
+          </div>
+          {% endif %}
+
+          {% if item.entities.document_fee %}
+          <div class="py-1 border-b border-slate-800/40">
+            <span class="text-slate-400 block text-[10px] uppercase">Tender Dossier Purchase Fee</span>
+            <span class="text-slate-300 font-mono">{{ item.entities.document_fee }}</span>
+          </div>
+          {% endif %}
+
+          {% if item.entities.salary_min %}
+          <div class="py-1 border-b border-slate-800/40">
+            <span class="text-blue-400 block text-[10px] uppercase">Salary Range</span>
+            <span class="text-blue-300 font-mono font-semibold">{{ item.entities.salary_min }}{% if item.entities.salary_max %} - {{ item.entities.salary_max }}{% endif %}</span>
+          </div>
+          {% endif %}
+
+          <!-- Deadlines -->
+          <div class="py-1 border-b border-slate-800/40">
+            <span class="text-slate-500 block text-[10px] uppercase">Submission Deadline (Gregorian)</span>
+            <span class="text-amber-400 font-mono font-bold">{{ item.entities.deadline_iso|default:item.entities.tender_deadline|default:item.entities.application_deadline|default:"None identified" }}</span>
+            {% if item.entities.deadline_original and item.entities.deadline_original != item.entities.deadline_iso %}
+            <span class="text-[10px] text-slate-500 block">Original text: {{ item.entities.deadline_original }}</span>
+            {% endif %}
+          </div>
+
           <div class="py-1 border-b border-slate-800/40">
             <span class="text-slate-500 block text-[10px] uppercase">Contact Phone</span>
             <span class="text-slate-200 font-mono">{{ item.entities.phone_number|default:"None identified" }}</span>
@@ -158,14 +204,6 @@
           <div class="py-1 border-b border-slate-800/40">
             <span class="text-slate-500 block text-[10px] uppercase">Email</span>
             <span class="text-slate-200 font-mono">{{ item.entities.email|default:"None identified" }}</span>
-          </div>
-          <div class="py-1 border-b border-slate-800/40">
-            <span class="text-slate-500 block text-[10px] uppercase">Price / Budget</span>
-            <span class="text-slate-200 font-mono">{{ item.entities.price|default:"None identified" }}</span>
-          </div>
-          <div class="py-1 border-b border-slate-800/40">
-            <span class="text-slate-500 block text-[10px] uppercase">Deadline</span>
-            <span class="text-amber-400 font-mono">{{ item.entities.tender_deadline|default:item.entities.application_deadline|default:"None identified" }}</span>
           </div>
           <div class="py-1">
             <span class="text-slate-500 block text-[10px] uppercase">Location</span>

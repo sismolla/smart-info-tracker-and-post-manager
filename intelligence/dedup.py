@@ -18,6 +18,15 @@ def compute_content_hash(text: str) -> str:
     norm = normalize_text_for_hash(text)
     return hashlib.sha256(norm.encode('utf-8')).hexdigest()
 
+def extract_quick_reference_number(text: str) -> Optional[str]:
+    """Extracts Bid Reference Number or Tender Code for deterministic matching."""
+    match = re.search(
+        r'(?:(?:bid|tender|ref)\s*(?:reference\s*no\.?|ref\s*no\.?|reference|ref|no\.?)|የጨረታ\s*ቁጥር)\s*[:#]?\s*([A-Za-z0-9/\-_.]+)',
+        text,
+        re.IGNORECASE
+    )
+    return match.group(1).strip() if match else None
+
 def get_word_shingles(text: str, n: int = 3) -> set:
     """Extracts word n-grams (shingles) for similarity comparison."""
     words = normalize_text_for_hash(text).split()
@@ -34,15 +43,16 @@ def jaccard_similarity(set_a: set, set_b: set) -> float:
 
 class DeduplicationEngine:
     """
-    Two-tier deduplication engine for market intelligence data:
-      Tier 1: O(1) Exact SHA-256 hash match against recent database records.
-      Tier 2: Fuzzy Jaccard n-gram similarity against recent candidates in the same category/time window.
+    Multi-tier deduplication engine for market intelligence data:
+      Tier 1: O(1) Exact SHA-256 hash match.
+      Tier 2: Semantic Reference Number Match (100% deterministic cross-lingual matching e.g. Amharic vs English).
+      Tier 3: Fuzzy Jaccard n-gram similarity against recent candidates.
     """
 
-    SIMILARITY_THRESHOLD = 0.72 # Items with >= 72% shingle similarity considered duplicates
+    SIMILARITY_THRESHOLD = 0.72
 
     @classmethod
-    def check_and_cluster(cls, item: CollectedItem, time_window_days: int = 30) -> Tuple[bool, Optional[DuplicateGroup]]:
+    def check_and_cluster(cls, item: CollectedItem, time_window_days: int = 45) -> Tuple[bool, Optional[DuplicateGroup]]:
         """
         Evaluates whether an item is a duplicate.
         If duplicate, assigns item to DuplicateGroup, sets item.is_primary_duplicate = False,
@@ -51,7 +61,6 @@ class DeduplicationEngine:
         """
         content_hash = compute_content_hash(item.original_content)
         item.content_hash = content_hash
-
         since = timezone.now() - timezone.timedelta(days=time_window_days)
 
         # 1. Tier 1: Exact Hash Match
@@ -79,10 +88,41 @@ class DeduplicationEngine:
             logger.info(f"Item #{item.id} matched exact duplicate of #{exact_match.id}")
             return True, group
 
-        # 2. Tier 2: Fuzzy / Near-Duplicate Match
+        # 2. Tier 2: Semantic Reference Number Match (e.g. EPSA/MOH/NCB/2026/042)
+        # Guarantees cross-lingual matching (e.g. Amharic Telegram post vs English Web post)
+        ref_no = None
+        if hasattr(item, 'entities') and item.entities and item.entities.reference_number:
+            ref_no = item.entities.reference_number
+        else:
+            ref_no = extract_quick_reference_number(item.original_content)
+
+        if ref_no and len(ref_no) >= 5:
+            ref_match = CollectedItem.objects.filter(
+                entities__reference_number__iexact=ref_no,
+                collected_at__gte=since
+            ).exclude(id=item.id).first()
+
+            if ref_match:
+                group = ref_match.duplicate_group
+                if not group:
+                    group = DuplicateGroup.objects.create(
+                        canonical_hash=content_hash,
+                        primary_item=ref_match,
+                        similarity_score=1.0
+                    )
+                    ref_match.duplicate_group = group
+                    ref_match.save(update_fields=['duplicate_group'])
+
+                item.duplicate_group = group
+                item.is_primary_duplicate = False
+                item.status = 'duplicate'
+                item.save(update_fields=['content_hash', 'duplicate_group', 'is_primary_duplicate', 'status'])
+                logger.info(f"Item #{item.id} matched cross-source duplicate via Reference Number '{ref_no}' with #{ref_match.id}")
+                return True, group
+
+        # 3. Tier 3: Fuzzy / Near-Duplicate Match
         item_shingles = get_word_shingles(item.original_content, n=3)
         if len(item_shingles) >= 5:
-            # Check against recent primary items
             candidates = CollectedItem.objects.filter(
                 is_primary_duplicate=True,
                 collected_at__gte=since
@@ -109,7 +149,6 @@ class DeduplicationEngine:
                     logger.info(f"Item #{item.id} matched near-duplicate of #{cand.id} (Similarity: {sim:.2f})")
                     return True, group
 
-        # If not a duplicate, mark dedup_checked
         item.is_primary_duplicate = True
         if item.status == 'ingested':
             item.status = 'dedup_checked'

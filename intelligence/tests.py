@@ -71,3 +71,56 @@ class IntelligenceEngineTests(TestCase):
         self.assertIsNotNone(analysis)
         self.assertIn('Job Opportunities', analysis.suggested_categories)
         self.assertEqual(item.entities.organization, 'St. Paul Hospital')
+
+    def test_financial_disambiguation_budget_vs_fee_vs_bond(self):
+        """Verifies that document fee (200 ETB) is not mistaken for contract budget or bid bond."""
+        text = """
+        INVITATION TO BID
+        Bid Ref No: MOH/PHARMA/2026/089
+        Organization: Ministry of Health
+        A non-refundable fee of 200 ETB for purchase of tender dossier.
+        Bid security of 150,000 ETB in CPO required.
+        Estimated budget of 25,000,000 ETB for surgical gloves procurement.
+        Closing Date: 2026-12-20
+        """
+        item = CollectedItem.objects.create(
+            source=self.source,
+            external_id="ext_fin_test",
+            title="Surgical Gloves Procurement",
+            original_content=text
+        )
+        ai_engine = AIEngine()
+        ai_engine.analyze_item(item)
+        item.refresh_from_db()
+
+        self.assertEqual(item.entities.reference_number, 'MOH/PHARMA/2026/089')
+        self.assertIn('200', item.entities.document_fee)
+        self.assertIn('150,000', item.entities.bid_bond_amount)
+        self.assertIn('25,000,000', item.entities.estimated_budget)
+        self.assertEqual(item.entities.deadline_iso, '2026-12-20')
+
+    def test_reference_number_cross_lingual_deduplication(self):
+        """Verifies that matching Bid Reference Numbers trigger deduplication even with different text."""
+        item_english = CollectedItem.objects.create(
+            source=self.source,
+            external_id="tender_en_1",
+            title="National Competitive Bid for Hospital Monitors",
+            original_content="Tender Ref No: EPSA/EQUIP/2026/999\nOrganization: EPSA\nSupply of 50 patient monitors.",
+        )
+        AIEngine().analyze_item(item_english)
+        DeduplicationEngine.check_and_cluster(item_english)
+
+        # Re-post in Amharic with the same Bid Reference Number
+        item_amharic = CollectedItem.objects.create(
+            source=self.source,
+            external_id="tender_am_2",
+            title="የታካሚ መከታተያ ሞኒተሮች ግዢ ጨረታ ማስታወቂያ",
+            original_content="የጨረታ ቁጥር: EPSA/EQUIP/2026/999\nድርጅት፡ የኢትዮጵያ መድኃኒት አቅራቢ ኤጀንሲ\n50 ሞኒተሮችን በግልጽ ጨረታ መግዛት ይፈልጋል።",
+        )
+        AIEngine().analyze_item(item_amharic)
+        is_dup, group = DeduplicationEngine.check_and_cluster(item_amharic)
+
+        self.assertTrue(is_dup)
+        self.assertEqual(item_amharic.status, 'duplicate')
+        self.assertFalse(item_amharic.is_primary_duplicate)
+        self.assertIsNotNone(group)

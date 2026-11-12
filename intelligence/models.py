@@ -124,25 +124,43 @@ class ContentVersion(models.Model):
 
 class ExtractedEntity(models.Model):
     """
-    Structured key business parameters extracted via Regex and AI.
+    Structured key business parameters extracted via LLM Semantic Schema Parsing.
+    Disambiguates financial components (Budget vs Bid Bond vs Doc Fee vs Salary)
+    and converts deadlines to standardized Gregorian dates.
     Unknown values are preserved strictly as null/None.
     """
     item = models.OneToOneField(CollectedItem, on_delete=models.CASCADE, related_name='entities')
     organization = models.CharField(max_length=250, null=True, blank=True)
+    reference_number = models.CharField(max_length=150, null=True, blank=True, db_index=True, help_text="Bid reference No or Job requisition ID")
     contact_person = models.CharField(max_length=150, null=True, blank=True)
     phone_number = models.CharField(max_length=100, null=True, blank=True)
     email = models.EmailField(null=True, blank=True)
     location = models.CharField(max_length=200, null=True, blank=True)
     product_or_service = models.CharField(max_length=250, null=True, blank=True)
+    opportunity_type = models.CharField(max_length=100, null=True, blank=True)
+    
+    # Structured Financial Disambiguation (replaces naive regex price matching)
+    estimated_budget = models.CharField(max_length=120, null=True, blank=True, help_text="Total estimated project or contract budget")
+    bid_bond_amount = models.CharField(max_length=120, null=True, blank=True, help_text="Bid security / CPO required")
+    document_fee = models.CharField(max_length=120, null=True, blank=True, help_text="Non-refundable fee to purchase tender dossier")
+    salary_min = models.CharField(max_length=100, null=True, blank=True)
+    salary_max = models.CharField(max_length=100, null=True, blank=True)
+    currency = models.CharField(max_length=20, default='ETB', blank=True)
+    
+    # Standardized Dates & Calendar Disambiguation
+    deadline_iso = models.CharField(max_length=50, null=True, blank=True, help_text="Standardized ISO Gregorian deadline")
+    deadline_original = models.CharField(max_length=150, null=True, blank=True, help_text="Original deadline as written (e.g. Ethiopian calendar)")
+    
+    # Legacy / convenience properties
     price = models.CharField(max_length=100, null=True, blank=True)
     application_deadline = models.CharField(max_length=100, null=True, blank=True)
     tender_deadline = models.CharField(max_length=100, null=True, blank=True)
-    opportunity_type = models.CharField(max_length=100, null=True, blank=True)
     keywords = models.JSONField(default=list, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Entities for Item #{self.item.id} ({self.organization or 'General'})"
+        ref = f" [{self.reference_number}]" if self.reference_number else ""
+        return f"Entities for Item #{self.item.id} ({self.organization or 'General'}{ref})"
 
 
 class AIAnalysis(models.Model):

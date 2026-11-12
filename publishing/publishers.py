@@ -35,14 +35,27 @@ class PublishingManager:
             'tags': [t.name for t in item.tags.all()],
             'entities': {
                 'organization': entities.organization if entities else None,
+                'reference_number': entities.reference_number if entities else None,
                 'contact_person': entities.contact_person if entities else None,
                 'phone_number': entities.phone_number if entities else None,
                 'email': entities.email if entities else None,
                 'location': entities.location if entities else None,
+                'opportunity_type': entities.opportunity_type if entities else None,
+                'financials': {
+                    'estimated_budget': entities.estimated_budget if entities else None,
+                    'bid_bond_amount': entities.bid_bond_amount if entities else None,
+                    'document_fee': entities.document_fee if entities else None,
+                    'salary_min': entities.salary_min if entities else None,
+                    'salary_max': entities.salary_max if entities else None,
+                    'currency': entities.currency if entities else 'ETB',
+                } if entities else {},
+                'dates': {
+                    'deadline_iso': entities.deadline_iso if entities else None,
+                    'deadline_original': entities.deadline_original if entities else None,
+                } if entities else {},
                 'price': entities.price if entities else None,
                 'application_deadline': entities.application_deadline if entities else None,
                 'tender_deadline': entities.tender_deadline if entities else None,
-                'opportunity_type': entities.opportunity_type if entities else None,
             } if entities else {},
             'ai_summary': {
                 'short': analysis.short_summary if analysis else '',
