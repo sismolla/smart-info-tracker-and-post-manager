@@ -15,6 +15,9 @@ CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
+# Ensure current working directory is application root on cPanel LiteSpeed/Passenger
+os.chdir(str(CURRENT_DIR))
+
 # Set Django settings module
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'market_intel.settings')
 

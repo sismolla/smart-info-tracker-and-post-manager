@@ -28,6 +28,7 @@ class TelegramConnector(BaseConnector):
         self.api_hash = creds.get('api_hash') or getattr(settings, 'TELEGRAM_API_HASH', '')
         self.bot_token = creds.get('bot_token') or getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
         self.phone_number = creds.get('phone_number') or getattr(settings, 'TELEGRAM_PHONE_NUMBER', '')
+        self.string_session = creds.get('string_session') or getattr(settings, 'TELEGRAM_STRING_SESSION', '')
 
     def authenticate(self) -> bool:
         """Validates that necessary Telegram credentials are configured."""
@@ -42,12 +43,31 @@ class TelegramConnector(BaseConnector):
             return {
                 'status': 'error',
                 'authenticated': False,
-                'message': 'Telegram API credentials missing. Provide API ID/Hash or Bot Token in Connected Account.',
+                'message': 'Telegram API credentials missing. Provide API ID/Hash, StringSession, or Bot Token in Connected Account.',
             }
+
+        # If Bot Token is configured, test live against Telegram Bot API
+        if self.bot_token:
+            try:
+                import requests
+                resp = requests.get(f"https://api.telegram.org/bot{self.bot_token}/getMe", timeout=10)
+                if resp.status_code == 200 and resp.json().get('ok'):
+                    bot_data = resp.json()['result']
+                    return {
+                        'status': 'ok',
+                        'authenticated': True,
+                        'bot_id': bot_data.get('id'),
+                        'bot_username': bot_data.get('username'),
+                        'mode': 'bot_api',
+                        'message': f"Telegram Bot @{bot_data.get('username')} authenticated successfully.",
+                    }
+            except Exception as e:
+                logger.warning(f"Telegram Bot API verification error: {e}")
+
         return {
             'status': 'ok',
             'authenticated': True,
-            'message': 'Telegram connector initialized successfully.',
+            'message': 'Telegram connector initialized with MTProto credentials.',
             'capabilities': ['public_channels', 'authorized_groups', 'metadata_extraction']
         }
 
@@ -59,15 +79,18 @@ class TelegramConnector(BaseConnector):
         target = source.endpoint_url.strip()
         items = []
 
-        # Try Live Telethon MTProto Client if credentials exist
+        # 1. Try Live Telethon MTProto Client if credentials exist
         if self.api_id and self.api_hash:
             try:
                 from telethon.sync import TelegramClient
-                from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
-                
-                # Use a session file stored securely in media/sessions
-                session_name = f"tg_session_{self.account.id if self.account else 'default'}"
-                with TelegramClient(session_name, int(self.api_id), self.api_hash) as client:
+                from telethon.sessions import StringSession
+
+                if self.string_session:
+                    session = StringSession(self.string_session)
+                else:
+                    session = f"tg_session_{self.account.id if self.account else 'default'}"
+
+                with TelegramClient(session, int(self.api_id), self.api_hash) as client:
                     messages = client.get_messages(target, limit=limit)
                     for msg in messages:
                         if not msg.text:
@@ -85,12 +108,35 @@ class TelegramConnector(BaseConnector):
                             'target': target,
                         }
                         items.append(self.normalize(raw_dict))
-                    return items
+                    if items:
+                        return items
             except Exception as e:
-                logger.warning(f"Live Telethon collection failed for {target}: {e}. Falling back to API/parser.")
+                logger.warning(f"Live Telethon collection failed for {target}: {e}. Falling back to Bot API.")
 
-        # Fallback to Bot API or simulated parser for authorized test channels
-        # Extract metadata from text pattern if offline/simulated
+        # 2. Try Official Telegram Bot API
+        if self.bot_token:
+            try:
+                import requests
+                resp = requests.get(f"https://api.telegram.org/bot{self.bot_token}/getUpdates", timeout=10)
+                if resp.status_code == 200 and resp.json().get('ok'):
+                    for update in resp.json().get('result', []):
+                        msg = update.get('channel_post') or update.get('message')
+                        if msg and msg.get('text'):
+                            raw_dict = {
+                                'id': msg.get('message_id'),
+                                'text': msg.get('text'),
+                                'date': datetime.fromtimestamp(msg.get('date')).isoformat() if msg.get('date') else None,
+                                'fwd_from': str(msg.get('forward_from_chat')) if msg.get('forward_from_chat') else None,
+                                'views': 0,
+                                'forwards': 0,
+                                'target': target,
+                            }
+                            items.append(self.normalize(raw_dict))
+                    if items:
+                        return items
+            except Exception as e:
+                logger.warning(f"Telegram Bot API fetch failed for {target}: {e}")
+
         return items
 
     def normalize(self, raw_data: Any) -> NormalizedItem:

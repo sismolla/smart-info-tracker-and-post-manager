@@ -60,12 +60,14 @@ class UniversalWebConnector(BaseConnector):
                 
             source.health_status = 'healthy'
             source.error_message = ''
-            source.save(update_fields=['health_status', 'error_message'])
+            if getattr(source, 'id', None):
+                source.save(update_fields=['health_status', 'error_message'])
         except Exception as e:
             logger.error(f"Web extraction error for {url}: {e}")
             source.health_status = 'failing'
             source.error_message = str(e)[:250]
-            source.save(update_fields=['health_status', 'error_message'])
+            if getattr(source, 'id', None):
+                source.save(update_fields=['health_status', 'error_message'])
 
         return items
 

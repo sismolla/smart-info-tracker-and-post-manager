@@ -100,12 +100,14 @@ class LinkedInConnector(BaseConnector):
                 logger.error(f"LinkedIn UGC post fetch failed: {resp.status_code} - {resp.text}")
                 source.health_status = 'rate_limited' if resp.status_code == 429 else 'failing'
                 source.error_message = resp.text[:200]
-                source.save(update_fields=['health_status', 'error_message'])
+                if getattr(source, 'id', None):
+                    source.save(update_fields=['health_status', 'error_message'])
         except Exception as e:
             logger.error(f"Error connecting to LinkedIn API: {e}")
             source.health_status = 'failing'
             source.error_message = str(e)[:200]
-            source.save(update_fields=['health_status', 'error_message'])
+            if getattr(source, 'id', None):
+                source.save(update_fields=['health_status', 'error_message'])
 
         return items
 

@@ -51,3 +51,27 @@ class ConnectorFrameworkTests(TestCase):
         self.assertNotIn('abcdef1234567890', reloaded.encrypted_credentials)
         self.assertEqual(reloaded.get_credentials()['api_id'], '123456')
         self.assertEqual(reloaded.get_credentials()['api_hash'], 'abcdef1234567890')
+
+    def test_telegram_string_session_and_bot_mode(self):
+        account = ConnectedAccount.objects.create(
+            connector=self.conn_tg,
+            name="Telegram StringSession Account"
+        )
+        account.set_credentials({'api_id': '12345', 'api_hash': 'abcdef', 'string_session': '1AZWarz...'})
+        connector = TelegramConnector(account=account)
+        self.assertTrue(connector.authenticate())
+        self.assertEqual(connector.string_session, '1AZWarz...')
+
+    def test_web_connector_with_unsaved_transient_source(self):
+        # Verifies that transient / unsaved sources do not crash with ValueError on save
+        transient_source = InformationSource(
+            name="Transient Test Source",
+            connector=self.conn_web,
+            source_type="website",
+            endpoint_url="https://example.com"
+        )
+        self.assertIsNone(transient_source.id)
+        connector = UniversalWebConnector()
+        # Should execute without raising ValueError: Cannot force an update in save() with no primary key
+        items = connector.fetch_new_items(transient_source, limit=1)
+        self.assertIsInstance(items, list)
