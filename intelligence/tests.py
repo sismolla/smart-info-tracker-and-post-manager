@@ -124,3 +124,31 @@ class IntelligenceEngineTests(TestCase):
         self.assertEqual(item_amharic.status, 'duplicate')
         self.assertFalse(item_amharic.is_primary_duplicate)
         self.assertIsNotNone(group)
+
+    def test_circuit_breaker_token_accumulation_and_trip(self):
+        """Verifies daily AI spend tracking and automated circuit breaker trip."""
+        from intelligence.models import AIDailyUsageTracker
+
+        # Clean slate for today
+        today = timezone.now().date()
+        AIDailyUsageTracker.objects.filter(date=today).delete()
+
+        # Check initial state
+        self.assertTrue(AIDailyUsageTracker.can_call_ai())
+
+        # Record standard call: 1,000 input tokens, 200 output tokens
+        AIDailyUsageTracker.record_usage(input_tokens=1000, output_tokens=200)
+        tracker = AIDailyUsageTracker.objects.get(date=today)
+        self.assertEqual(tracker.total_calls, 1)
+        self.assertEqual(tracker.total_input_tokens, 1000)
+        self.assertEqual(tracker.total_output_tokens, 200)
+        self.assertGreater(tracker.estimated_cost_usd, 0)
+        self.assertFalse(tracker.is_circuit_breaker_tripped)
+        self.assertTrue(AIDailyUsageTracker.can_call_ai())
+
+        # Record massive usage that breaches daily limit ($2.00)
+        # At $0.30 per 1M tokens, 10M output tokens = $3.00
+        AIDailyUsageTracker.record_usage(input_tokens=5000000, output_tokens=10000000)
+        tracker.refresh_from_db()
+        self.assertTrue(tracker.is_circuit_breaker_tripped)
+        self.assertFalse(AIDailyUsageTracker.can_call_ai())

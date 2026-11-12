@@ -2,15 +2,45 @@ import os
 import shutil
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
 from django.utils import timezone
+from django.conf import settings
 from connectors.models import Connector, ConnectedAccount, InformationSource, CollectionRun
-from intelligence.models import CollectedItem, Category, ExtractedEntity, AIAnalysis, DuplicateGroup
+from intelligence.models import CollectedItem, Category, ExtractedEntity, AIAnalysis, DuplicateGroup, AIDailyUsageTracker
 from publishing.models import Webhook, Publication
 from publishing.publishers import PublishingManager
+from publishing.alerts import TelegramAlertDispatcher
 from core.models import DatabaseLock, AuditLog, SystemSetting
 from workflows.engine import PipelineEngine
 
+def login_view(request):
+    """Secure administrative authentication view."""
+    if request.user.is_authenticated:
+        return redirect('dashboard_overview')
+
+    if request.method == 'POST':
+        username = request.POST.get('username', '').strip()
+        password = request.POST.get('password', '').strip()
+        user = authenticate(request, username=username, password=password)
+        if user is not None:
+            login(request, user)
+            next_url = request.GET.get('next') or 'dashboard_overview'
+            messages.success(request, f"Welcome back, {user.username}!")
+            return redirect(next_url)
+        else:
+            messages.error(request, "Invalid username or password.")
+
+    return render(request, 'dashboard/login.html')
+
+def logout_view(request):
+    """Terminates session securely."""
+    logout(request)
+    messages.info(request, "You have been logged out.")
+    return redirect('login')
+
+@login_required(login_url='login')
 def overview_view(request):
     """Main executive dashboard view."""
     now = timezone.now()
@@ -25,7 +55,7 @@ def overview_view(request):
     duplicates_detected = CollectedItem.objects.filter(is_primary_duplicate=False).count()
     recent_runs = CollectionRun.objects.select_related('source')[:8]
     failed_runs = CollectionRun.objects.filter(status='failed').count()
-    recent_items = CollectedItem.objects.select_related('source', 'ai_analysis').prefetch_related('categories')[:6]
+    recent_items = CollectedItem.objects.select_related('source', 'ai_analysis', 'entities').prefetch_related('categories')[:6]
     categories = Category.objects.annotate(item_count=Count('items')).order_by('-item_count')[:6]
 
     context = {
@@ -42,6 +72,7 @@ def overview_view(request):
     }
     return render(request, 'dashboard/overview.html', context)
 
+@login_required(login_url='login')
 def sources_view(request):
     """Source configuration, monitoring and connectivity testing."""
     if request.method == 'POST':
@@ -86,8 +117,46 @@ def sources_view(request):
     }
     return render(request, 'dashboard/sources.html', context)
 
+@login_required(login_url='login')
 def items_view(request):
-    """Searchable, filterable repository of collected intelligence."""
+    """
+    Searchable, filterable repository with high-efficiency Bulk Curation Actions
+    (Bulk Approve, Bulk Reject, Bulk Archive, Bulk Publish).
+    """
+    if request.method == 'POST':
+        bulk_action = request.POST.get('bulk_action')
+        selected_ids = request.POST.getlist('selected_items')
+
+        if not selected_ids:
+            messages.warning(request, "No items were selected.")
+            return redirect('dashboard_items')
+
+        items_qs = CollectedItem.objects.filter(id__in=selected_ids)
+        count = items_qs.count()
+
+        if bulk_action == 'approve':
+            items_qs.update(status='approved')
+            # Trigger push alerts for approved high-priority items
+            for item in items_qs.select_related('ai_analysis', 'entities', 'source'):
+                TelegramAlertDispatcher.send_alert(item)
+            messages.success(request, f"Successfully approved {count} items.")
+
+        elif bulk_action == 'reject':
+            items_qs.update(status='rejected')
+            messages.warning(request, f"Successfully rejected {count} items.")
+
+        elif bulk_action == 'archive':
+            items_qs.update(status='archived')
+            messages.info(request, f"Successfully archived {count} items.")
+
+        elif bulk_action == 'publish':
+            for item in items_qs.select_related('ai_analysis', 'entities', 'source'):
+                PublishingManager.publish_item(item, channel='dashboard_bulk')
+                TelegramAlertDispatcher.send_alert(item, force=True)
+            messages.success(request, f"Successfully published {count} items to webhooks and alert bots.")
+
+        return redirect('dashboard_items')
+
     qs = CollectedItem.objects.select_related('source', 'entities', 'ai_analysis').prefetch_related('categories')
 
     status_filter = request.GET.get('status')
@@ -107,10 +176,11 @@ def items_view(request):
         qs = qs.filter(
             Q(title__icontains=search) |
             Q(original_content__icontains=search) |
-            Q(entities__organization__icontains=search)
+            Q(entities__organization__icontains=search) |
+            Q(entities__reference_number__icontains=search)
         )
 
-    items = qs[:50]
+    items = qs[:60]
     categories = Category.objects.all()
     sources = InformationSource.objects.all()
 
@@ -124,8 +194,9 @@ def items_view(request):
     }
     return render(request, 'dashboard/items.html', context)
 
+@login_required(login_url='login')
 def item_detail_view(request, item_id):
-    """Detailed view for single item with approval & publishing actions."""
+    """Detailed view for single item with approval, alert trigger, & publishing actions."""
     item = get_object_or_404(CollectedItem.objects.select_related('source', 'entities', 'ai_analysis'), id=item_id)
 
     if request.method == 'POST':
@@ -133,14 +204,17 @@ def item_detail_view(request, item_id):
         if action == 'approve':
             item.status = 'approved'
             item.save(update_fields=['status'])
-            messages.success(request, f"Item #{item.id} approved.")
+            # Send instant Telegram Push Alert to executives/sales
+            TelegramAlertDispatcher.send_alert(item)
+            messages.success(request, f"Item #{item.id} approved and Telegram alert evaluated.")
         elif action == 'reject':
             item.status = 'rejected'
             item.save(update_fields=['status'])
             messages.warning(request, f"Item #{item.id} rejected.")
         elif action == 'publish':
             PublishingManager.publish_item(item, channel='dashboard')
-            messages.success(request, f"Item #{item.id} published successfully.")
+            TelegramAlertDispatcher.send_alert(item, force=True)
+            messages.success(request, f"Item #{item.id} published and broadcast.")
         elif action == 'reanalyze':
             from intelligence.ai_client import AIEngine
             AIEngine().analyze_item(item)
@@ -155,9 +229,9 @@ def item_detail_view(request, item_id):
     }
     return render(request, 'dashboard/item_detail.html', context)
 
+@login_required(login_url='login')
 def ai_settings_view(request):
-    """AI Provider configuration and usage statistics."""
-    from django.conf import settings
+    """AI Provider configuration, token metrics, and circuit breaker status."""
     has_gemini = bool(getattr(settings, 'GEMINI_API_KEY', ''))
     model_name = getattr(settings, 'GEMINI_MODEL', 'gemini-1.5-flash')
 
@@ -167,16 +241,25 @@ def ai_settings_view(request):
         total_score = sum(AIAnalysis.objects.values_list('relevance_score', flat=True))
         avg_score = round(total_score / analyzed_count, 1)
 
+    today = timezone.now().date()
+    today_tracker = AIDailyUsageTracker.objects.filter(date=today).first()
+    spend_limit = getattr(settings, 'AI_DAILY_SPEND_LIMIT_USD', 2.00)
+    max_calls = getattr(settings, 'AI_DAILY_MAX_CALLS', 500)
+
     context = {
         'has_gemini_key': has_gemini,
         'model_name': model_name,
         'analyzed_count': analyzed_count,
         'avg_score': avg_score,
+        'today_tracker': today_tracker,
+        'spend_limit': spend_limit,
+        'max_calls': max_calls,
     }
     return render(request, 'dashboard/ai_settings.html', context)
 
+@login_required(login_url='login')
 def publishing_view(request):
-    """Editorial publishing queue, webhooks, and syndication."""
+    """Editorial publishing queue, webhooks, and push alerts."""
     if request.method == 'POST':
         action = request.POST.get('action')
         if action == 'add_webhook':
@@ -187,18 +270,34 @@ def publishing_view(request):
             messages.success(request, f"Webhook '{name}' registered.")
             return redirect('dashboard_publishing')
 
+        elif action == 'test_telegram_alert':
+            # Send test alert using most recent item
+            sample_item = CollectedItem.objects.select_related('source', 'entities', 'ai_analysis').first()
+            if sample_item:
+                success = TelegramAlertDispatcher.send_alert(sample_item, force=True)
+                if success:
+                    messages.success(request, "Test Telegram Alert sent successfully to configured chat!")
+                else:
+                    messages.error(request, "Failed to send Telegram alert. Verify TELEGRAM_BOT_TOKEN and TELEGRAM_ALERT_CHAT_ID in .env.")
+            else:
+                messages.warning(request, "No intelligence items available to send test alert.")
+            return redirect('dashboard_publishing')
+
     publications = Publication.objects.select_related('item')[:20]
     webhooks = Webhook.objects.all()
 
     context = {
         'publications': publications,
         'webhooks': webhooks,
+        'alert_chat_id': getattr(settings, 'TELEGRAM_ALERT_CHAT_ID', ''),
+        'alert_min_score': getattr(settings, 'TELEGRAM_ALERT_MIN_SCORE', 75),
+        'has_bot_token': bool(getattr(settings, 'TELEGRAM_BOT_TOKEN', '')),
     }
     return render(request, 'dashboard/publishing.html', context)
 
+@login_required(login_url='login')
 def health_view(request):
     """cPanel diagnostic and operational health monitoring."""
-    from django.conf import settings
     total, used, free = shutil.disk_usage(settings.BASE_DIR)
     active_locks = DatabaseLock.objects.filter(expires_at__gt=timezone.now())
 

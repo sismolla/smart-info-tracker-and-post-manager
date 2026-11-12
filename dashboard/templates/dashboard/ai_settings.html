@@ -32,6 +32,64 @@
     </div>
   </div>
 
+  <!-- Financial Spend & Circuit Breaker Protection -->
+  <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
+    <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+      <div>
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <span>🛡️ Daily AI Spend Controls & Circuit Breaker</span>
+          {% if today_tracker.is_circuit_breaker_tripped %}
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
+            Circuit Breaker Tripped (Safe Fallback Active)
+          </span>
+          {% else %}
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            Circuit Breaker Active (Protected)
+          </span>
+          {% endif %}
+        </h3>
+        <p class="text-xs text-slate-400 mt-0.5">Prevents runaway Gemini API billing by halting LLM calls and reverting to semantic heuristics upon reaching daily spend caps.</p>
+      </div>
+      <div class="text-right">
+        <span class="text-xs text-slate-400 block">Daily Spend Cap</span>
+        <span class="text-sm font-bold font-mono text-emerald-400">${{ spend_limit|floatformat:2 }} USD/day</span>
+      </div>
+    </div>
+
+    <!-- Usage Gauges -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
+        <span class="text-[11px] text-slate-400">Today's API Calls</span>
+        <div class="text-base font-bold font-mono text-white mt-1">
+          {{ today_tracker.total_calls|default:0 }} <span class="text-xs font-normal text-slate-400">/ {{ max_calls }} max</span>
+        </div>
+        <div class="w-full bg-slate-700/50 h-1.5 rounded-full mt-2 overflow-hidden">
+          <div class="bg-blue-500 h-full rounded-full" style="width: {% widthratio today_tracker.total_calls|default:0 max_calls 100 %}%;"></div>
+        </div>
+      </div>
+
+      <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
+        <span class="text-[11px] text-slate-400">Today's Token Volume</span>
+        <div class="text-base font-bold font-mono text-white mt-1">
+          {{ today_tracker.total_input_tokens|default:0|add:today_tracker.total_output_tokens|default:0 }}
+        </div>
+        <div class="text-[10px] text-slate-500 mt-1">
+          In: {{ today_tracker.total_input_tokens|default:0 }} &bull; Out: {{ today_tracker.total_output_tokens|default:0 }}
+        </div>
+      </div>
+
+      <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
+        <span class="text-[11px] text-slate-400">Estimated Today's Cost</span>
+        <div class="text-base font-bold font-mono {% if today_tracker.is_circuit_breaker_tripped %}text-rose-400{% else %}text-emerald-400{% endif %} mt-1">
+          ${{ today_tracker.estimated_cost_usd|default:"0.0000" }}
+        </div>
+        <div class="text-[10px] text-slate-500 mt-1">
+          Cap: ${{ spend_limit|floatformat:2 }} (Gemini 1.5/2.0 Flash)
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Prompt & Taxonomy Details -->
   <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-4">
     <h3 class="text-sm font-bold text-white">Configured Classification Taxonomies</h3>

@@ -49,107 +49,170 @@
     </form>
   </div>
 
-  <!-- Items Table -->
-  <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow">
-    <table class="min-w-full divide-y divide-slate-800 text-left text-xs">
-      <thead class="bg-slate-800/60 text-slate-400 uppercase font-mono text-[11px]">
-        <tr>
-          <th class="px-4 py-3">Title & Summary</th>
-          <th class="px-4 py-3">Source & Date</th>
-          <th class="px-4 py-3">Category</th>
-          <th class="px-4 py-3">Key Entities</th>
-          <th class="px-4 py-3">Relevance</th>
-          <th class="px-4 py-3">Status</th>
-          <th class="px-4 py-3 text-right">Action</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-800">
-        {% for item in items %}
-        <tr class="hover:bg-slate-800/30 transition">
-          <td class="px-4 py-3 max-w-sm">
-            <a href="{% url 'dashboard_item_detail' item.id %}" class="font-bold text-white hover:text-blue-400 transition block line-clamp-1">
-              {{ item.title }}
-            </a>
-            <p class="text-[11px] text-slate-400 line-clamp-2 mt-0.5">
-              {{ item.ai_analysis.short_summary|default:item.original_content }}
-            </p>
-          </td>
+  <!-- Bulk Action Form Container -->
+  <form method="POST" id="bulk-action-form" class="space-y-4">
+    {% csrf_token %}
 
-          <td class="px-4 py-3 whitespace-nowrap">
-            <span class="text-slate-300 font-medium block">{{ item.source.name }}</span>
-            <span class="text-[10px] text-slate-500">{{ item.collected_at|date:"M d, H:i" }}</span>
-          </td>
+    <!-- Sticky Bulk Action Control Bar -->
+    <div id="bulk-toolbar" class="p-3 rounded-xl border border-blue-500/30 bg-blue-950/40 backdrop-blur flex flex-wrap items-center justify-between gap-3 shadow-lg">
+      <div class="flex items-center space-x-3 text-xs">
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 font-bold text-white text-[11px]" id="selected-count">0</span>
+        <span class="text-slate-300 font-medium">Items selected for bulk curation</span>
+      </div>
 
-          <td class="px-4 py-3">
-            {% for cat in item.categories.all %}
-            <span class="inline-block px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold text-[10px] mr-1">
-              {{ cat.name }}
-            </span>
-            {% empty %}
-            <span class="text-slate-500">Uncategorized</span>
-            {% endfor %}
-          </td>
+      <div class="flex items-center flex-wrap gap-2 text-xs">
+        <button type="submit" name="bulk_action" value="approve" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition flex items-center gap-1.5 shadow">
+          <span>✓</span> Bulk Approve
+        </button>
+        <button type="submit" name="bulk_action" value="publish" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition flex items-center gap-1.5 shadow">
+          <span>🚀</span> Bulk Publish & Alert
+        </button>
+        <button type="submit" name="bulk_action" value="reject" class="px-3 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-600 text-white font-semibold transition flex items-center gap-1.5">
+          <span>✕</span> Bulk Reject
+        </button>
+        <button type="submit" name="bulk_action" value="archive" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition flex items-center gap-1.5">
+          <span>📁</span> Archive
+        </button>
+      </div>
+    </div>
 
-          <td class="px-4 py-3 text-[11px] space-y-0.5">
-            {% if item.entities.organization %}
-            <div class="text-slate-300 font-semibold truncate max-w-[150px]">🏢 {{ item.entities.organization }}</div>
-            {% endif %}
-            {% if item.entities.reference_number %}
-            <div class="text-blue-400 font-mono text-[10px]">🏷️ {{ item.entities.reference_number }}</div>
-            {% endif %}
-            {% if item.entities.estimated_budget %}
-            <div class="text-emerald-400 font-mono font-bold">💰 {{ item.entities.estimated_budget }}</div>
-            {% elif item.entities.salary_min %}
-            <div class="text-blue-300 font-mono">💵 {{ item.entities.salary_min }}</div>
-            {% elif item.entities.bid_bond_amount %}
-            <div class="text-amber-300 font-mono">🛡️ {{ item.entities.bid_bond_amount }}</div>
-            {% endif %}
-            {% if item.entities.deadline_iso %}
-            <div class="text-amber-400 font-mono">⏰ {{ item.entities.deadline_iso }}</div>
-            {% elif item.entities.tender_deadline %}
-            <div class="text-amber-400 font-mono">⏰ {{ item.entities.tender_deadline }}</div>
-            {% endif %}
-          </td>
+    <!-- Items Table -->
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow">
+      <table class="min-w-full divide-y divide-slate-800 text-left text-xs">
+        <thead class="bg-slate-800/60 text-slate-400 uppercase font-mono text-[11px]">
+          <tr>
+            <th class="px-3 py-3 w-8 text-center">
+              <input type="checkbox" id="select-all" class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 cursor-pointer">
+            </th>
+            <th class="px-4 py-3">Title & Summary</th>
+            <th class="px-4 py-3">Source & Date</th>
+            <th class="px-4 py-3">Category</th>
+            <th class="px-4 py-3">Key Entities</th>
+            <th class="px-4 py-3">Relevance</th>
+            <th class="px-4 py-3">Status</th>
+            <th class="px-4 py-3 text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-800">
+          {% for item in items %}
+          <tr class="hover:bg-slate-800/30 transition">
+            <td class="px-3 py-3 text-center">
+              <input type="checkbox" name="selected_items" value="{{ item.id }}" class="item-checkbox rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 cursor-pointer">
+            </td>
+            <td class="px-4 py-3 max-w-sm">
+              <a href="{% url 'dashboard_item_detail' item.id %}" class="font-bold text-white hover:text-blue-400 transition block line-clamp-1">
+                {{ item.title }}
+              </a>
+              <p class="text-[11px] text-slate-400 line-clamp-2 mt-0.5">
+                {{ item.ai_analysis.short_summary|default:item.original_content }}
+              </p>
+            </td>
 
-          <td class="px-4 py-3 whitespace-nowrap">
-            {% if item.ai_analysis %}
-            <span class="font-mono font-bold px-2 py-0.5 rounded text-xs
-              {% if item.ai_analysis.relevance_score >= 75 %} bg-emerald-500/20 text-emerald-400
-              {% elif item.ai_analysis.relevance_score >= 50 %} bg-blue-500/20 text-blue-400
-              {% else %} bg-slate-800 text-slate-400 {% endif %}">
-              {{ item.ai_analysis.relevance_score }}%
-            </span>
-            {% else %}
-            <span class="text-slate-500 text-[11px]">Unscored</span>
-            {% endif %}
-          </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="text-slate-300 font-medium block">{{ item.source.name }}</span>
+              <span class="text-[10px] text-slate-500">{{ item.collected_at|date:"M d, H:i" }}</span>
+            </td>
 
-          <td class="px-4 py-3 whitespace-nowrap">
-            <span class="px-2 py-0.5 rounded text-[10px] font-semibold
-              {% if item.status == 'approved' or item.status == 'published' %} bg-emerald-500/20 text-emerald-400
-              {% elif item.status == 'ai_processed' %} bg-amber-500/20 text-amber-400
-              {% elif item.status == 'duplicate' %} bg-purple-500/20 text-purple-400
-              {% elif item.status == 'rejected' %} bg-rose-500/20 text-rose-400
-              {% else %} bg-slate-800 text-slate-400 {% endif %}">
-              {{ item.get_status_display }}
-            </span>
-          </td>
+            <td class="px-4 py-3">
+              {% for cat in item.categories.all %}
+              <span class="inline-block px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold text-[10px] mr-1">
+                {{ cat.name }}
+              </span>
+              {% empty %}
+              <span class="text-slate-500">Uncategorized</span>
+              {% endfor %}
+            </td>
 
-          <td class="px-4 py-3 text-right whitespace-nowrap">
-            <a href="{% url 'dashboard_item_detail' item.id %}" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs">
-              Review &rarr;
-            </a>
-          </td>
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="7" class="px-4 py-8 text-center text-slate-500 text-xs">
-            No intelligence items match the selected filter.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+            <td class="px-4 py-3 text-[11px] space-y-0.5">
+              {% if item.entities.organization %}
+              <div class="text-slate-300 font-semibold truncate max-w-[150px]">🏢 {{ item.entities.organization }}</div>
+              {% endif %}
+              {% if item.entities.reference_number %}
+              <div class="text-blue-400 font-mono text-[10px]">🏷️ {{ item.entities.reference_number }}</div>
+              {% endif %}
+              {% if item.entities.estimated_budget %}
+              <div class="text-emerald-400 font-mono font-bold">💰 {{ item.entities.estimated_budget }}</div>
+              {% elif item.entities.salary_min %}
+              <div class="text-blue-300 font-mono">💵 {{ item.entities.salary_min }}</div>
+              {% elif item.entities.bid_bond_amount %}
+              <div class="text-amber-300 font-mono">🛡️ {{ item.entities.bid_bond_amount }}</div>
+              {% endif %}
+              {% if item.entities.deadline_iso %}
+              <div class="text-amber-400 font-mono">⏰ {{ item.entities.deadline_iso }}</div>
+              {% elif item.entities.tender_deadline %}
+              <div class="text-amber-400 font-mono">⏰ {{ item.entities.tender_deadline }}</div>
+              {% endif %}
+            </td>
+
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if item.ai_analysis %}
+              <span class="font-mono font-bold px-2 py-0.5 rounded text-xs
+                {% if item.ai_analysis.relevance_score >= 75 %} bg-emerald-500/20 text-emerald-400
+                {% elif item.ai_analysis.relevance_score >= 50 %} bg-blue-500/20 text-blue-400
+                {% else %} bg-slate-800 text-slate-400 {% endif %}">
+                {{ item.ai_analysis.relevance_score }}%
+              </span>
+              {% else %}
+              <span class="text-slate-500 text-[11px]">Unscored</span>
+              {% endif %}
+            </td>
+
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="px-2 py-0.5 rounded text-[10px] font-semibold
+                {% if item.status == 'approved' or item.status == 'published' %} bg-emerald-500/20 text-emerald-400
+                {% elif item.status == 'ai_processed' %} bg-amber-500/20 text-amber-400
+                {% elif item.status == 'duplicate' %} bg-purple-500/20 text-purple-400
+                {% elif item.status == 'rejected' %} bg-rose-500/20 text-rose-400
+                {% else %} bg-slate-800 text-slate-400 {% endif %}">
+                {{ item.get_status_display }}
+              </span>
+            </td>
+
+            <td class="px-4 py-3 text-right whitespace-nowrap">
+              <a href="{% url 'dashboard_item_detail' item.id %}" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs">
+                Review &rarr;
+              </a>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" class="px-4 py-8 text-center text-slate-500 text-xs">
+              No intelligence items match the selected filter.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
 </div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const selectAll = document.getElementById('select-all');
+    const checkboxes = document.querySelectorAll('.item-checkbox');
+    const countDisplay = document.getElementById('selected-count');
+
+    function updateCount() {
+      const checkedCount = document.querySelectorAll('.item-checkbox:checked').length;
+      countDisplay.textContent = checkedCount;
+    }
+
+    if (selectAll) {
+      selectAll.addEventListener('change', function() {
+        checkboxes.forEach(cb => cb.checked = selectAll.checked);
+        updateCount();
+      });
+    }
+
+    checkboxes.forEach(cb => {
+      cb.addEventListener('change', function() {
+        if (!cb.checked && selectAll) selectAll.checked = false;
+        updateCount();
+      });
+    });
+
+    updateCount();
+  });
+</script>
 {% endblock %}

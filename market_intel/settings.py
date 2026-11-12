@@ -103,7 +103,18 @@ else:
         }
     }
 
-# Password validation
+# Authentication Redirects
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'dashboard_overview'
+LOGOUT_REDIRECT_URL = 'login'
+
+# Telegram Outbound Alert Bot
+TELEGRAM_ALERT_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID', '')
+TELEGRAM_ALERT_MIN_SCORE = int(os.getenv('TELEGRAM_ALERT_MIN_SCORE', '75'))
+
+# AI Budget & Financial Circuit Breaker
+AI_DAILY_SPEND_LIMIT_USD = float(os.getenv('AI_DAILY_SPEND_LIMIT_USD', '2.00'))
+AI_DAILY_MAX_CALLS = int(os.getenv('AI_DAILY_MAX_CALLS', '500'))
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},

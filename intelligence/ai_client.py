@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 from django.conf import settings
 from .language import detect_language
 from .scoring import calculate_relevance_score
-from .models import CollectedItem, AIAnalysis, ExtractedEntity, Category, Tag
+from .models import CollectedItem, AIAnalysis, ExtractedEntity, Category, Tag, AIDailyUsageTracker
 
 logger = logging.getLogger(__name__)
 
@@ -92,24 +92,30 @@ class AIEngine:
         extracted_data = None
         token_usage = {'prompt_tokens': 0, 'completion_tokens': 0}
 
-        # 1. Attempt Gemini Structured Schema Output
+        # 1. Attempt Gemini Structured Schema Output (protected by AI Daily Budget Circuit Breaker)
         if self._gemini_client:
-            try:
-                prompt = f"{SYSTEM_PROMPT}\n\nINPUT DATA:\n{raw_text}"
-                response = self._gemini_client.generate_content(
-                    prompt,
-                    generation_config={"response_mime_type": "application/json"}
-                )
-                if response and response.text:
-                    cleaned_json = response.text.strip()
-                    if cleaned_json.startswith("```"):
-                        cleaned_json = re.sub(r'^```(?:json)?\s*', '', cleaned_json)
-                        cleaned_json = re.sub(r'\s*```$', '', cleaned_json)
-                    extracted_data = json.loads(cleaned_json)
-                    token_usage['prompt_tokens'] = len(prompt.split())
-                    token_usage['completion_tokens'] = len(response.text.split())
-            except Exception as e:
-                logger.warning(f"Gemini API call failed for item #{item.id}: {e}. Engaging semantic heuristic fallback.")
+            if not AIDailyUsageTracker.can_call_ai():
+                logger.warning(f"AI Daily Spend Cap / Call Limit reached. Tripping circuit breaker for item #{item.id} and routing to semantic fallback.")
+            else:
+                try:
+                    prompt = f"{SYSTEM_PROMPT}\n\nINPUT DATA:\n{raw_text}"
+                    response = self._gemini_client.generate_content(
+                        prompt,
+                        generation_config={"response_mime_type": "application/json"}
+                    )
+                    if response and response.text:
+                        cleaned_json = response.text.strip()
+                        if cleaned_json.startswith("```"):
+                            cleaned_json = re.sub(r'^```(?:json)?\s*', '', cleaned_json)
+                            cleaned_json = re.sub(r'\s*```$', '', cleaned_json)
+                        extracted_data = json.loads(cleaned_json)
+                        p_tokens = len(prompt.split())
+                        c_tokens = len(response.text.split())
+                        token_usage['prompt_tokens'] = p_tokens
+                        token_usage['completion_tokens'] = c_tokens
+                        AIDailyUsageTracker.record_usage(p_tokens, c_tokens)
+                except Exception as e:
+                    logger.warning(f"Gemini API call failed for item #{item.id}: {e}. Engaging semantic heuristic fallback.")
 
         # 2. Fallback to Semantic Heuristic Parser
         if not extracted_data:

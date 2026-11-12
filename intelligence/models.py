@@ -1,5 +1,6 @@
 import hashlib
 from django.db import models
+from django.utils import timezone
 from django.contrib.auth import get_user_model
 from connectors.models import InformationSource, CollectionRun
 
@@ -187,3 +188,64 @@ class AIAnalysis(models.Model):
 
     def __str__(self):
         return f"AI Analysis for #{self.item.id} (Score: {self.relevance_score}/100)"
+
+
+class AIDailyUsageTracker(models.Model):
+    """
+    Monitors daily AI token consumption, API calls, and estimated dollar costs.
+    Automatically trips a circuit breaker when daily limits are breached to prevent
+    runaway API billing.
+    """
+    date = models.DateField(default=timezone.now, unique=True, db_index=True)
+    total_calls = models.PositiveIntegerField(default=0)
+    total_input_tokens = models.PositiveIntegerField(default=0)
+    total_output_tokens = models.PositiveIntegerField(default=0)
+    estimated_cost_usd = models.DecimalField(max_digits=8, decimal_places=4, default=0.0000)
+    is_circuit_breaker_tripped = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date']
+        verbose_name = 'AI Daily Usage Tracker'
+
+    def __str__(self):
+        return f"AI Usage {self.date}: {self.total_calls} calls, ${self.estimated_cost_usd} (Breaker: {self.is_circuit_breaker_tripped})"
+
+    @classmethod
+    def can_call_ai(cls) -> bool:
+        """Checks if current day usage is below spend limit and call limit."""
+        from django.conf import settings
+        max_cost = getattr(settings, 'AI_DAILY_SPEND_LIMIT_USD', 2.00)
+        max_calls = getattr(settings, 'AI_DAILY_MAX_CALLS', 500)
+        
+        today = timezone.now().date()
+        tracker, _ = cls.objects.get_or_create(date=today)
+        
+        if tracker.is_circuit_breaker_tripped:
+            return False
+            
+        if tracker.total_calls >= max_calls or float(tracker.estimated_cost_usd) >= max_cost:
+            tracker.is_circuit_breaker_tripped = True
+            tracker.save(update_fields=['is_circuit_breaker_tripped'])
+            return False
+            
+        return True
+
+    @classmethod
+    def record_usage(cls, input_tokens: int, output_tokens: int):
+        today = timezone.now().date()
+        tracker, _ = cls.objects.get_or_create(date=today)
+        tracker.total_calls += 1
+        tracker.total_input_tokens += input_tokens
+        tracker.total_output_tokens += output_tokens
+        
+        # Gemini 1.5 Flash pricing: $0.075 / 1M input, $0.30 / 1M output
+        call_cost = (input_tokens * 0.000000075) + (output_tokens * 0.00000030)
+        tracker.estimated_cost_usd = float(tracker.estimated_cost_usd) + call_cost
+        
+        from django.conf import settings
+        max_cost = getattr(settings, 'AI_DAILY_SPEND_LIMIT_USD', 2.00)
+        if float(tracker.estimated_cost_usd) >= max_cost:
+            tracker.is_circuit_breaker_tripped = True
+            
+        tracker.save()

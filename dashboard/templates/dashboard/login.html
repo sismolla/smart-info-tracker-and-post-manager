@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In - Market Intelligence Platform</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+</head>
+<body class="h-full flex items-center justify-center p-4 antialiased bg-slate-950 text-slate-100">
+  <div class="max-w-md w-full space-y-6">
+    <!-- Header / Brand -->
+    <div class="text-center space-y-2">
+      <div class="inline-flex w-12 h-12 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 items-center justify-center font-bold text-white shadow-xl text-xl">
+        MI
+      </div>
+      <h1 class="text-xl font-bold tracking-tight text-white">Market Intelligence Platform</h1>
+      <p class="text-xs text-slate-400">Enterprise Information Aggregation & Autonomous AI Curation</p>
+    </div>
+
+    <!-- Login Card -->
+    <div class="p-6 rounded-2xl border border-slate-800 bg-slate-900/80 shadow-2xl backdrop-blur-sm space-y-4">
+      <div class="pb-2 border-b border-slate-800 text-xs font-semibold text-slate-300">
+        Administrator Sign In
+      </div>
+
+      <!-- Flash Messages -->
+      {% if messages %}
+      {% for message in messages %}
+      <div class="p-3 rounded-lg text-xs font-medium border flex items-center justify-between
+        {% if message.tags == 'error' %} bg-rose-500/10 text-rose-300 border-rose-500/30
+        {% else %} bg-blue-500/10 text-blue-300 border-blue-500/30 {% endif %}">
+        <span>{{ message }}</span>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      <form method="POST" class="space-y-4 text-xs">
+        {% csrf_token %}
+        <div>
+          <label class="block text-slate-300 font-medium mb-1.5">Username</label>
+          <input type="text" name="username" required autofocus placeholder="Enter your username"
+            class="w-full px-3.5 py-2.5 rounded-lg bg-slate-800/80 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition">
+        </div>
+
+        <div>
+          <label class="block text-slate-300 font-medium mb-1.5">Password</label>
+          <input type="password" name="password" required placeholder="••••••••"
+            class="w-full px-3.5 py-2.5 rounded-lg bg-slate-800/80 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition">
+        </div>
+
+        <button type="submit"
+          class="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-lg transition duration-150">
+          Sign In to Dashboard &rarr;
+        </button>
+      </form>
+    </div>
+
+    <!-- Security Footer -->
+    <div class="text-center text-[11px] text-slate-500 space-y-1">
+      <p>🛡️ End-to-End Credential Encryption &bull; Role-Based Access Control</p>
+      <p>Market Intelligence Platform v1.2 &bull; Gojo Host cPanel Certified</p>
+    </div>
+  </div>
+</body>
+</html>
