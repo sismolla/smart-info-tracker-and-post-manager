@@ -75,3 +75,46 @@ class ConnectorFrameworkTests(TestCase):
         # Should execute without raising ValueError: Cannot force an update in save() with no primary key
         items = connector.fetch_new_items(transient_source, limit=1)
         self.assertIsInstance(items, list)
+
+    def test_web_connector_table_extraction(self):
+        html = """
+        <html><body>
+          <table class="tenders-table">
+            <tr><th>Tender Ref</th><th>Project Name</th><th>Deadline</th><th>Document</th></tr>
+            <tr><td>MOH/2026/01</td><td>Supply of Rapid Test Kits</td><td>2026-12-15</td><td><a href="/docs/tender1.pdf">Download PDF</a></td></tr>
+            <tr><td>MOH/2026/02</td><td>Hospital Cold Chain Units</td><td>2026-12-30</td><td><a href="/docs/tender2.pdf">Download PDF</a></td></tr>
+          </table>
+        </body></html>
+        """
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, 'html.parser')
+        connector = UniversalWebConnector()
+        table_items = connector._extract_table_items(
+            soup=soup,
+            url="https://example.com/procurement",
+            source_name="Procurement Portal",
+            config={'table_selector': 'table.tenders-table'}
+        )
+        self.assertEqual(len(table_items), 2)
+        self.assertIn("MOH/2026/01", table_items[0].title)
+        self.assertIn("Supply of Rapid Test Kits", table_items[0].content_text)
+        self.assertIn("https://example.com/docs/tender1.pdf", table_items[0].media_urls)
+
+    def test_web_connector_two_level_detail_crawl(self):
+        from unittest.mock import patch, MagicMock
+        connector = UniversalWebConnector()
+        with patch.object(connector.session, 'get') as mock_get:
+            mock_resp = MagicMock(status_code=200)
+            mock_resp.text = """
+            <html><body><article><div class="entry-content">
+            <h1>Federal Medical Tender Notice</h1>
+            <p>Comprehensive terms of reference for 100 ICU ventilators. Total budget 40,000,000 ETB.</p>
+            </div></article></body></html>
+            """
+            mock_resp.content = mock_resp.text.encode('utf-8')
+            mock_get.return_value = mock_resp
+
+            detail_text = connector._fetch_detail_content("https://example.com/tender/101")
+            self.assertIsNotNone(detail_text)
+            self.assertIn("100 ICU ventilators", detail_text)
+            self.assertIn("40,000,000 ETB", detail_text)
