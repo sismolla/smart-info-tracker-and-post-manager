@@ -68,8 +68,181 @@
 
   <!-- Detail Content Grid -->
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- Left Column (2 Cols): AI Synthesis & Original Text -->
+    <!-- Left Column (2 Cols): Media Gallery, Editorial Studio, AI Synthesis, Original Text -->
     <div class="lg:col-span-2 space-y-6">
+
+      <!-- Attached Visual Media Gallery -->
+      <div class="rounded-2xl border border-slate-200/90 bg-white p-6 space-y-4 shadow-xs">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div class="flex items-center gap-2">
+            <span class="text-base">📸</span>
+            <h2 class="text-sm font-bold text-slate-900">Attached Visual Media</h2>
+          </div>
+          {% if item.media_urls %}
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200/70">
+            {{ item.media_urls|length }} Media Asset{% if item.media_urls|length > 1 %}s{% endif %}
+          </span>
+          {% else %}
+          <span class="text-xs text-slate-400">No media attached</span>
+          {% endif %}
+        </div>
+
+        {% if item.media_urls %}
+          {% if item.media_urls|length == 1 %}
+            <!-- Single Featured Image View -->
+            <div class="space-y-2">
+              <div class="relative group overflow-hidden rounded-xl border border-slate-200 bg-slate-100 max-h-96 flex items-center justify-center">
+                <img src="{{ item.media_urls.0 }}" alt="Media asset" class="w-full h-auto max-h-96 object-contain" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                <div class="hidden p-8 text-center text-xs text-slate-400">⚠️ Image preview unavailable: <a href="{{ item.media_urls.0 }}" target="_blank" class="text-blue-600 underline ml-1">Direct Link ↗</a></div>
+              </div>
+              <div class="flex items-center justify-between text-xs text-slate-500 pt-1">
+                <span class="font-medium text-slate-700">📌 Featured Post Image</span>
+                <a href="{{ item.media_urls.0 }}" target="_blank" class="text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-1">
+                  <span>View High-Res</span>
+                  <span>↗</span>
+                </a>
+              </div>
+            </div>
+          {% else %}
+            <!-- Multi-Image Responsive Gallery Grid with Note Counters -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {% for url in item.media_urls %}
+              <div class="group relative rounded-xl border border-slate-200 overflow-hidden bg-slate-50 flex flex-col shadow-2xs hover:shadow-xs transition">
+                <div class="relative h-44 w-full bg-slate-100 overflow-hidden flex items-center justify-center">
+                  <img src="{{ url }}" alt="Image {{ forloop.counter }}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                  <div class="hidden p-4 text-center text-xs text-slate-400">⚠️ Preview unavailable</div>
+                  <span class="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-semibold tracking-wide">
+                    Image {{ forloop.counter }} of {{ item.media_urls|length }}
+                  </span>
+                </div>
+                <div class="p-2.5 flex items-center justify-between bg-white border-t border-slate-100 text-[11px]">
+                  <span class="text-slate-600 font-medium truncate max-w-[140px]" title="{{ url }}">{{ url|truncatechars:28 }}</span>
+                  <a href="{{ url }}" target="_blank" class="text-blue-600 hover:text-blue-800 font-semibold shrink-0">Open ↗</a>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="p-6 rounded-xl bg-slate-50/70 border border-dashed border-slate-200 text-center">
+            <span class="text-2xl block mb-1">🖼️</span>
+            <p class="text-xs text-slate-500 font-medium">No images were extracted from this source.</p>
+            <p class="text-[11px] text-slate-400 mt-0.5">You can attach image URLs in the Editorial Studio below prior to broadcasting.</p>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Pre-Publishing Editorial Studio & Multi-Channel Publisher -->
+      <div class="rounded-2xl border border-indigo-200/90 bg-gradient-to-br from-indigo-50/30 via-white to-blue-50/20 p-6 space-y-5 shadow-xs">
+        <div class="flex items-center justify-between pb-3 border-b border-indigo-100">
+          <div class="flex items-center gap-2">
+            <span class="text-base">✏️</span>
+            <div>
+              <h2 class="text-sm font-bold text-slate-900">Pre-Publishing Editorial Studio</h2>
+              <p class="text-[11px] text-slate-500">Edit content, refine summaries, attach media, and broadcast directly to connected channels</p>
+            </div>
+          </div>
+          {% if versions %}
+          <span class="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-mono text-[10px] font-bold border border-indigo-200/60">
+            v{{ versions.0.version_number }}
+          </span>
+          {% endif %}
+        </div>
+
+        <form method="POST" class="space-y-4">
+          {% csrf_token %}
+          
+          <!-- Post Headline -->
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Post Headline / Title</label>
+            <input type="text" name="title" value="{{ item.title }}" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-2xs">
+          </div>
+
+          <!-- Editorial Broadcast Note -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-[11px] font-bold text-indigo-900 uppercase tracking-wider">💡 Custom Editorial Broadcast Note</label>
+              <span class="text-[10px] text-indigo-600 font-medium">Prepended to Telegram, Facebook & LinkedIn posts</span>
+            </div>
+            <textarea name="editorial_notes" rows="2" placeholder="e.g. '🚨 High-priority tender opportunity closing soon. Recommended for medical suppliers...'" class="w-full px-3.5 py-2.5 rounded-xl border border-indigo-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white/90 shadow-2xs leading-relaxed">{{ item.editorial_notes }}</textarea>
+          </div>
+
+          <!-- Executive Summary -->
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Executive Summary / Social Teaser</label>
+            <textarea name="short_summary" rows="3" placeholder="Core executive takeaway for social commentary..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-2xs leading-relaxed">{{ item.ai_analysis.short_summary }}</textarea>
+          </div>
+
+          <!-- Media URLs -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">Attached Image / Media URLs</label>
+              <span class="text-[10px] text-slate-400">One URL per line or comma-separated</span>
+            </div>
+            <textarea name="media_urls" rows="2" placeholder="https://example.com/image1.jpg&#10;https://example.com/image2.jpg" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono text-[11px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-2xs">{{ media_urls_text }}</textarea>
+          </div>
+
+          <!-- Article Body Text -->
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Article Body Text</label>
+            <textarea name="original_content" rows="5" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-2xs leading-relaxed font-sans">{{ item.original_content }}</textarea>
+          </div>
+
+          <!-- Multi-Channel Direct Publishing Action Bar -->
+          <div class="pt-3 border-t border-indigo-100 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <button type="submit" name="action" value="save_edit" class="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-xs font-semibold text-slate-800 shadow-2xs transition inline-flex items-center gap-1.5">
+                <span>💾</span>
+                <span>Save Edits</span>
+              </button>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="submit" name="action" value="post_telegram" class="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold shadow-xs transition inline-flex items-center gap-1.5" title="Push alert with photo to Telegram Channel">
+                <span>📢</span>
+                <span>Post to Telegram</span>
+              </button>
+
+              <button type="submit" name="action" value="post_facebook" class="px-3.5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold shadow-xs transition inline-flex items-center gap-1.5" title="Post to Meta Facebook Page Feed">
+                <span>🌐</span>
+                <span>Post to Facebook</span>
+              </button>
+
+              <button type="submit" name="action" value="post_linkedin" class="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition inline-flex items-center gap-1.5" title="Post to LinkedIn Organization Page">
+                <span>💼</span>
+                <span>Post to LinkedIn</span>
+              </button>
+
+              <button type="submit" name="action" value="post_all" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition inline-flex items-center gap-1.5" title="Broadcast across Telegram, Facebook, LinkedIn, & Webhooks">
+                <span>🚀</span>
+                <span>Publish to All</span>
+              </button>
+            </div>
+          </div>
+        </form>
+
+        <!-- Revision History if present -->
+        {% if versions %}
+        <div class="pt-3 border-t border-indigo-100/70">
+          <h4 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Editorial Revisions History</h4>
+          <div class="space-y-1.5">
+            {% for ver in versions %}
+            <div class="flex items-center justify-between text-xs py-1 px-2.5 rounded-lg bg-white/80 border border-slate-100">
+              <div class="flex items-center gap-2">
+                <span class="font-mono font-bold text-indigo-700 text-[10px]">v{{ ver.version_number }}</span>
+                <span class="text-slate-700 font-medium">{{ ver.change_summary|default:"Editorial update" }}</span>
+                {% if ver.edited_by %}
+                <span class="text-slate-400 text-[10px]">by {{ ver.edited_by.username }}</span>
+                {% endif %}
+              </div>
+              <span class="text-slate-400 text-[10px]">{{ ver.changed_at|date:"M d, H:i" }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
       <!-- AI Intelligence Box -->
       {% if item.ai_analysis %}
       <div class="rounded-2xl border border-blue-200/90 bg-gradient-to-br from-blue-50/40 via-white to-indigo-50/20 p-6 space-y-5 shadow-xs">

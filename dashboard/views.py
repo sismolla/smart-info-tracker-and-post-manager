@@ -8,7 +8,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from django.conf import settings
 from connectors.models import Connector, ConnectedAccount, InformationSource, CollectionRun
-from intelligence.models import CollectedItem, Category, ExtractedEntity, AIAnalysis, DuplicateGroup, AIDailyUsageTracker
+from intelligence.models import CollectedItem, Category, ExtractedEntity, AIAnalysis, DuplicateGroup, AIDailyUsageTracker, ContentVersion
 from publishing.models import Webhook, Publication
 from publishing.publishers import PublishingManager
 from publishing.alerts import TelegramAlertDispatcher
@@ -196,15 +196,92 @@ def items_view(request):
 
 @login_required(login_url='login')
 def item_detail_view(request, item_id):
-    """Detailed view for single item with approval, alert trigger, & publishing actions."""
+    """
+    Detailed intelligence view with AI synthesis, visual media gallery,
+    interactive editorial editing studio, and multi-channel publication triggers.
+    """
     item = get_object_or_404(CollectedItem.objects.select_related('source', 'entities', 'ai_analysis'), id=item_id)
 
     if request.method == 'POST':
         action = request.POST.get('action')
-        if action == 'approve':
+
+        # Check if form submitted editorial edits
+        if action in ['save_edit', 'post_telegram', 'post_facebook', 'post_linkedin', 'post_all']:
+            new_title = request.POST.get('title', '').strip()
+            new_content = request.POST.get('original_content', '').strip()
+            new_editorial_notes = request.POST.get('editorial_notes', '').strip()
+            new_summary = request.POST.get('short_summary', '').strip()
+            media_input = request.POST.get('media_urls', '').strip()
+
+            media_urls = []
+            if media_input:
+                for line in media_input.replace(',', '\n').splitlines():
+                    cleaned = line.strip()
+                    if cleaned and cleaned.startswith('http'):
+                        if cleaned not in media_urls:
+                            media_urls.append(cleaned)
+
+            if new_title:
+                item.title = new_title
+            if new_content:
+                item.original_content = new_content
+            item.editorial_notes = new_editorial_notes
+            item.media_urls = media_urls
+            item.save()
+
+            if new_summary and hasattr(item, 'ai_analysis') and item.ai_analysis:
+                item.ai_analysis.short_summary = new_summary
+                item.ai_analysis.save(update_fields=['short_summary'])
+
+            # Log version history
+            current_v = item.versions.count()
+            ContentVersion.objects.create(
+                item=item,
+                version_number=current_v + 1,
+                edited_by=request.user if request.user.is_authenticated else None,
+                title=item.title,
+                content_text=item.original_content,
+                change_summary=f"Editorial update before {action}" if action != 'save_edit' else "Editorial update"
+            )
+
+            if action == 'save_edit':
+                messages.success(request, f"Item #{item.id} editorial updates saved (Revision v{current_v + 1}).")
+
+            elif action == 'post_telegram':
+                success = TelegramAlertDispatcher.send_alert(item, force=True)
+                if success:
+                    item.status = 'published'
+                    item.save(update_fields=['status'])
+                    messages.success(request, f"Item #{item.id} changes saved & successfully broadcast to Telegram!")
+                else:
+                    messages.error(request, "Failed to broadcast to Telegram. Verify bot credentials and chat ID.")
+
+            elif action == 'post_facebook':
+                success = PublishingManager.publish_to_facebook(item)
+                if success:
+                    item.status = 'published'
+                    item.save(update_fields=['status'])
+                    messages.success(request, f"Item #{item.id} changes saved & successfully posted to Facebook Page!")
+                else:
+                    messages.error(request, "Failed to post to Facebook. Verify Facebook Page Access Token and Page ID.")
+
+            elif action == 'post_linkedin':
+                success = PublishingManager.publish_to_linkedin(item)
+                if success:
+                    item.status = 'published'
+                    item.save(update_fields=['status'])
+                    messages.success(request, f"Item #{item.id} changes saved & successfully posted to LinkedIn Organization!")
+                else:
+                    messages.error(request, "Failed to post to LinkedIn. Verify LinkedIn Token and Org URN.")
+
+            elif action == 'post_all':
+                PublishingManager.publish_item(item, channel='editorial_studio', dispatch_social=True)
+                TelegramAlertDispatcher.send_alert(item, force=True)
+                messages.success(request, f"Item #{item.id} changes saved & published to All Channels (Telegram, Facebook, LinkedIn, & Webhooks)!")
+
+        elif action == 'approve':
             item.status = 'approved'
             item.save(update_fields=['status'])
-            # Send instant Telegram Push Alert to executives/sales
             TelegramAlertDispatcher.send_alert(item)
             messages.success(request, f"Item #{item.id} approved and Telegram alert evaluated.")
         elif action == 'reject':
@@ -222,10 +299,13 @@ def item_detail_view(request, item_id):
         return redirect('dashboard_item_detail', item_id=item.id)
 
     duplicates = item.duplicate_group.items.exclude(id=item.id) if item.duplicate_group else []
+    versions = item.versions.select_related('edited_by')[:5]
 
     context = {
         'item': item,
         'duplicates': duplicates,
+        'versions': versions,
+        'media_urls_text': "\n".join(item.media_urls) if item.media_urls else "",
     }
     return render(request, 'dashboard/item_detail.html', context)
 

@@ -78,6 +78,8 @@ class CollectedItem(models.Model):
     raw_payload = models.JSONField(default=dict, blank=True)
     language = models.CharField(max_length=10, default='en', db_index=True)
     status = models.CharField(max_length=25, choices=STATUS_CHOICES, default='ingested', db_index=True)
+    media_urls = models.JSONField(default=list, blank=True, help_text="List of extracted image and document URLs")
+    editorial_notes = models.TextField(blank=True, help_text="Custom editorial note or broadcast message")
     
     # Deduplication & Clustering
     duplicate_group = models.ForeignKey(DuplicateGroup, null=True, blank=True, on_delete=models.SET_NULL, related_name='items')

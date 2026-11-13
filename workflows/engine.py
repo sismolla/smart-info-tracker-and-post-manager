@@ -28,20 +28,21 @@ class PipelineEngine:
         analysis = ai_engine.analyze_item(item)
 
         # 3. Step 3: Workflow Auto-Approval Check
+        # Find workflow: prefer source-specific, then fall back to any active workflow
         if not workflow:
-            # Check if there is an active workflow for this source or default
-            workflow = Workflow.objects.filter(is_active=True).filter(
-                models_source_filter=item.source
-            ).first() if hasattr(Workflow.objects, 'models_source_filter') else Workflow.objects.filter(is_active=True).first()
+            workflow = (
+                Workflow.objects.filter(is_active=True, source=item.source).first()
+                or Workflow.objects.filter(is_active=True, source__isnull=True).first()
+            )
 
         if workflow and workflow.auto_approve:
             if analysis.relevance_score >= workflow.auto_approve_min_score:
                 item.status = 'approved'
                 item.save(update_fields=['status'])
-                logger.info(f"Item #{item.id} auto-approved by workflow {workflow.name}")
-                
+                logger.info(f"Item #{item.id} auto-approved by workflow '{workflow.name}' (score {analysis.relevance_score})")
+
                 if workflow.auto_publish:
                     from publishing.publishers import PublishingManager
-                    PublishingManager.publish_item(item, channel='default')
+                    PublishingManager.publish_item(item, channel='auto_workflow')
 
         return item

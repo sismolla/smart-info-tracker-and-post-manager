@@ -183,7 +183,7 @@ class TelegramConnector(BaseConnector):
             url=url,
             author=target,
             published_at=pub_date,
-            media_urls=[],
+            media_urls=raw_data.get('media_urls', []),
             raw_payload=raw_data,
             metadata=metadata
         )

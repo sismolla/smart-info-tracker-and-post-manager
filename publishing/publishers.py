@@ -124,22 +124,39 @@ class PublishingManager:
         budget_text = f"💰 Budget: {entities.estimated_budget}\n" if entities and entities.estimated_budget else ""
         deadline_text = f"⏰ Deadline: {entities.deadline_iso or entities.tender_deadline}\n" if entities and (entities.deadline_iso or entities.tender_deadline) else ""
 
+        editorial_note_block = f"💡 Editorial Note:\n{item.editorial_notes}\n\n" if item.editorial_notes else ""
         summary_text = item.ai_analysis.short_summary if hasattr(item, 'ai_analysis') and item.ai_analysis else item.original_content[:800]
         commentary = (
             f"📢 {item.title}\n\n"
             f"{org_text}{ref_text}{budget_text}{deadline_text}\n"
+            f"{editorial_note_block}"
             f"{summary_text}\n\n"
             f"🔗 Full Details: {item.canonical_url or 'https://marketintel.org'}"
         )
+
+        first_img = next((u for u in item.media_urls if u and u.startswith('http')), None) if item.media_urls else None
+        if first_img and item.canonical_url:
+            share_content = {
+                "shareCommentary": {"text": commentary[:2900]},
+                "shareMediaCategory": "ARTICLE",
+                "media": [{
+                    "status": "READY",
+                    "originalUrl": item.canonical_url,
+                    "thumbnails": [{"url": first_img}],
+                    "title": {"text": item.title[:200]}
+                }]
+            }
+        else:
+            share_content = {
+                "shareCommentary": {"text": commentary[:2900]},
+                "shareMediaCategory": "NONE"
+            }
 
         payload = {
             "author": org_urn,
             "lifecycleState": "PUBLISHED",
             "specificContent": {
-                "com.linkedin.ugc.ShareContent": {
-                    "shareCommentary": {"text": commentary[:2900]},
-                    "shareMediaCategory": "NONE"
-                }
+                "com.linkedin.ugc.ShareContent": share_content
             },
             "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
         }
@@ -190,10 +207,12 @@ class PublishingManager:
         budget_text = f"💰 Budget: {entities.estimated_budget}\n" if entities and entities.estimated_budget else ""
         deadline_text = f"⏰ Deadline: {entities.deadline_iso or entities.tender_deadline}\n" if entities and (entities.deadline_iso or entities.tender_deadline) else ""
 
+        editorial_note_block = f"💡 Editorial Note:\n{item.editorial_notes}\n\n" if item.editorial_notes else ""
         summary_text = item.ai_analysis.short_summary if hasattr(item, 'ai_analysis') and item.ai_analysis else item.original_content[:1000]
         message = (
             f"📢 {item.title}\n\n"
             f"{org_text}{ref_text}{budget_text}{deadline_text}\n"
+            f"{editorial_note_block}"
             f"{summary_text}\n\n"
             f"🔗 Source: {item.canonical_url or 'https://marketintel.org'}"
         )
@@ -204,6 +223,10 @@ class PublishingManager:
         }
         if item.canonical_url and item.canonical_url.startswith('http'):
             payload['link'] = item.canonical_url
+        if item.media_urls and isinstance(item.media_urls, list):
+            first_img = next((u for u in item.media_urls if u and u.startswith('http')), None)
+            if first_img:
+                payload['picture'] = first_img
 
         try:
             resp = requests.post(url, data=payload, timeout=15)

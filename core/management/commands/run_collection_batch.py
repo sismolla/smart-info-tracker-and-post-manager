@@ -83,6 +83,7 @@ class Command(BaseCommand):
                                 'author': raw.author,
                                 'published_at': raw.published_at,
                                 'raw_payload': raw.raw_payload,
+                                'media_urls': raw.media_urls or [],
                             }
                         )
 

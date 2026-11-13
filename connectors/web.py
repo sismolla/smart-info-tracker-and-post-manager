@@ -354,29 +354,87 @@ class UniversalWebConnector(BaseConnector):
         clean_content = '\n\n'.join(cleaned_lines) if cleaned_lines else (content or '')
         return title, clean_content
 
-    def _fetch_detail_content(self, url: str, ssl_verify: bool = True, config: dict = None) -> Optional[str]:
+    @classmethod
+    def extract_images_from_soup(cls, soup: BeautifulSoup, base_url: str) -> List[str]:
+        """
+        Extracts high-quality content images from HTML soup, including OpenGraph tags,
+        article bodies, and featured thumbnails. Filters out tracking pixels, icons, and data URIs.
+        """
+        images = []
+        seen = set()
+
+        def add_img(src):
+            if not src:
+                return
+            src = src.strip()
+            # Filter data URIs, svg placeholders, tracking pixels
+            if src.startswith('data:') or src.endswith('.svg') or 'tracking' in src.lower() or '1x1' in src.lower():
+                return
+            if 'gravatar.com' in src or 'analytics' in src.lower() or 'facebook.com/tr' in src:
+                return
+            full_url = urljoin(base_url, src)
+            if full_url.startswith('http://') or full_url.startswith('https://'):
+                clean_path = full_url.split('?')[0].lower()
+                valid_exts = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp')
+                is_valid = any(clean_path.endswith(ext) for ext in valid_exts) or any(
+                    k in full_url.lower() for k in ('/upload', '/media', '/image', '/photo', '/asset', 'cdn', 'wp-content')
+                )
+                if is_valid and full_url not in seen:
+                    seen.add(full_url)
+                    images.append(full_url)
+
+        # 1. OpenGraph & Meta image tags (highest resolution featured image)
+        for meta_prop in ('og:image', 'twitter:image', 'image'):
+            for m in soup.find_all('meta', property=meta_prop) + soup.find_all('meta', attrs={'name': meta_prop}):
+                add_img(m.get('content'))
+
+        # 2. link rel="image_src"
+        for link in soup.find_all('link', rel=lambda r: r and 'image' in str(r).lower()):
+            add_img(link.get('href'))
+
+        # 3. Main article / Content images (checking src, data-src, data-lazy-src, data-original)
+        for img in soup.select('article img, .entry-content img, .post-content img, .post-thumbnail img, main img, #content img, .tender-details img'):
+            src = (
+                img.get('data-src') or
+                img.get('data-lazy-src') or
+                img.get('data-original') or
+                img.get('src')
+            )
+            add_img(src)
+
+        # 4. Fallback: all images on page if nothing found yet
+        if not images:
+            for img in soup.find_all('img'):
+                src = img.get('data-src') or img.get('src')
+                add_img(src)
+
+        return images
+
+    def _fetch_detail_content(self, url: str, ssl_verify: bool = True, config: dict = None, return_media: bool = False):
         """
         Visits an individual article or tender detail page and extracts the clean
-        main content using source-specific rule profiles, stripping menus, sidebars, and ads.
+        main content and images using source-specific rule profiles.
         """
         if not url or not url.startswith('http'):
-            return None
+            return (None, []) if return_media else None
 
         config = config or {}
         try:
             resp = self.session.get(url, timeout=12, verify=ssl_verify)
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.content, 'html.parser')
+                images = self.extract_images_from_soup(soup, url)
                 _, clean_text = self.extract_clean_content_by_rule(soup, url, config=config, raw_html=resp.text)
                 if clean_text and len(clean_text) > 80:
-                    return clean_text
+                    return (clean_text, images) if return_media else clean_text
+                return (None, images) if return_media else None
         except Exception as e:
             logger.debug(f"Detail fetch failed for {url}: {e}")
 
-        return None
+        return (None, []) if return_media else None
 
     def _fetch_feed(self, url: str, source_name: str, config: dict, since: Optional[datetime] = None, limit: int = 30) -> List[NormalizedItem]:
-        """Parses RSS/Atom feeds with smart pagination and two-level detail enrichment."""
+        """Parses RSS/Atom feeds with smart pagination, image discovery, and two-level detail enrichment."""
         ssl_verify = config.get('ssl_verify', True)
         max_pages = config.get('max_pages', 1)
         crawl_detail = config.get('crawl_detail', True) # Default to true to fix teasers like MOH
@@ -425,12 +483,43 @@ class UniversalWebConnector(BaseConnector):
             if since and pub_date and pub_date <= since:
                 continue
 
-            # Two-Level Crawling: If content is just a short teaser (< 300 chars like MOH),
-            # or if crawl_detail is explicitly requested, visit the detail page!
-            if crawl_detail and (len(clean_text) < 300 or config.get('force_detail_crawl', False)):
-                detail_body = self._fetch_detail_content(link, ssl_verify=ssl_verify, config=config)
+            # Extract media images from RSS entry
+            entry_images = []
+            seen_imgs = set()
+            def add_feed_img(u):
+                if u and u.startswith('http') and u not in seen_imgs:
+                    seen_imgs.add(u)
+                    entry_images.append(u)
+
+            # Check media_content
+            for mc in entry.get('media_content', []):
+                if isinstance(mc, dict) and mc.get('url'):
+                    add_feed_img(mc['url'])
+
+            # Check media_thumbnail
+            for mt in entry.get('media_thumbnail', []):
+                if isinstance(mt, dict) and mt.get('url'):
+                    add_feed_img(mt['url'])
+
+            # Check enclosures
+            for enc in entry.get('enclosures', []):
+                if isinstance(enc, dict) and enc.get('href'):
+                    if 'image' in enc.get('type', '') or any(enc['href'].lower().endswith(ext) for ext in ('.jpg', '.jpeg', '.png', '.webp')):
+                        add_feed_img(enc['href'])
+
+            # Check HTML <img> inside entry content
+            for img_tag in soup.find_all('img'):
+                src = img_tag.get('data-src') or img_tag.get('src')
+                if src and not src.startswith('data:'):
+                    add_feed_img(urljoin(link, src))
+
+            # Two-Level Crawling: Enrich teaser text and discover high-res images from detail page
+            if crawl_detail and (len(clean_text) < 300 or config.get('force_detail_crawl', False) or not entry_images):
+                detail_body, detail_images = self._fetch_detail_content(link, ssl_verify=ssl_verify, config=config, return_media=True)
                 if detail_body and len(detail_body) > len(clean_text):
                     clean_text = detail_body
+                for d_img in detail_images:
+                    add_feed_img(d_img)
 
             items.append(NormalizedItem(
                 external_id=f"rss_{abs(hash(entry_id))}",
@@ -439,9 +528,9 @@ class UniversalWebConnector(BaseConnector):
                 url=link,
                 author=author,
                 published_at=pub_date,
-                media_urls=[],
+                media_urls=entry_images,
                 raw_payload={'title': title, 'link': link, 'id': entry_id},
-                metadata={'feed_source': source_name}
+                metadata={'feed_source': source_name, 'image_count': len(entry_images)}
             ))
 
         return items
@@ -617,11 +706,21 @@ class UniversalWebConnector(BaseConnector):
                     l_el = el.select_one(link_selector) if link_selector else el.find('a')
                     item_url = urljoin(current_url, l_el['href']) if l_el and l_el.get('href') else current_url
 
-                    # Level-2 Crawling: Visit the detail page to get full content
+                    # Extract images from card
+                    card_images = []
+                    for img in el.find_all('img'):
+                        src = img.get('data-src') or img.get('src')
+                        if src and not src.startswith('data:'):
+                            card_images.append(urljoin(current_url, src))
+
+                    # Level-2 Crawling: Visit the detail page to get full content & high-res images
                     if crawl_detail and item_url != current_url and item_url.startswith('http'):
-                        detail_text = self._fetch_detail_content(item_url, ssl_verify=ssl_verify, config=config)
+                        detail_text, detail_images = self._fetch_detail_content(item_url, ssl_verify=ssl_verify, config=config, return_media=True)
                         if detail_text and len(detail_text) > len(content):
                             content = detail_text
+                        for d_img in detail_images:
+                            if d_img not in card_images:
+                                card_images.append(d_img)
 
                     items.append(NormalizedItem(
                         external_id=f"web_{abs(hash(item_url + title))}",
@@ -630,9 +729,9 @@ class UniversalWebConnector(BaseConnector):
                         url=item_url,
                         author=source_name,
                         published_at=datetime.utcnow(),
-                        media_urls=[],
+                        media_urls=card_images,
                         raw_payload={'scraped_url': item_url},
-                        metadata={'scraped': True, 'two_level_crawled': crawl_detail}
+                        metadata={'scraped': True, 'two_level_crawled': crawl_detail, 'image_count': len(card_images)}
                     ))
 
             # 2. Table-Based Extraction (e.g. EPHI procurement tables)
@@ -644,6 +743,7 @@ class UniversalWebConnector(BaseConnector):
             # 3. Clean Single Page Article Extraction (Using Source Profiles & Rules)
             if not items:
                 raw_html_str = html_content if use_js else resp.text
+                single_images = self.extract_images_from_soup(soup, current_url)
                 title_text, clean_body = self.extract_clean_content_by_rule(
                     soup, current_url, config=config, raw_html=raw_html_str
                 )
@@ -657,9 +757,9 @@ class UniversalWebConnector(BaseConnector):
                     url=current_url,
                     author=source_name,
                     published_at=datetime.utcnow(),
-                    media_urls=[],
+                    media_urls=single_images,
                     raw_payload={'url': current_url},
-                    metadata={'single_page': True, 'rule_extracted': True}
+                    metadata={'single_page': True, 'rule_extracted': True, 'image_count': len(single_images)}
                 ))
 
             # Check next page pagination link

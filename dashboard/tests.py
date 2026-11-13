@@ -114,3 +114,90 @@ class DashboardSecurityAndCurationTests(TestCase):
             self.assertEqual(response.status_code, 302)
             self.assertEqual(mock_pub.call_count, 2)
             self.assertEqual(mock_alert.call_count, 2)
+
+    def test_editorial_studio_save_edit(self):
+        self.client.login(username="admin_curator", password=self.password)
+
+        response = self.client.post(reverse('dashboard_item_detail', args=[self.item1.id]), {
+            'action': 'save_edit',
+            'title': 'Updated CT Scanner Tender Title',
+            'editorial_notes': 'Verified with procurement officer on Nov 13.',
+            'short_summary': 'Updated executive summary for social blast.',
+            'media_urls': 'https://example.com/ct_front.jpg\nhttps://example.com/ct_spec.png',
+            'original_content': 'Refined original tender text specification.',
+        })
+        self.assertEqual(response.status_code, 302)
+
+        self.item1.refresh_from_db()
+        self.assertEqual(self.item1.title, 'Updated CT Scanner Tender Title')
+        self.assertEqual(self.item1.editorial_notes, 'Verified with procurement officer on Nov 13.')
+        self.assertEqual(self.item1.media_urls, ['https://example.com/ct_front.jpg', 'https://example.com/ct_spec.png'])
+        self.assertEqual(self.item1.ai_analysis.short_summary, 'Updated executive summary for social blast.')
+        self.assertEqual(self.item1.original_content, 'Refined original tender text specification.')
+
+        # Verify revision history created
+        versions = self.item1.versions.all()
+        self.assertEqual(versions.count(), 1)
+        self.assertEqual(versions[0].version_number, 1)
+        self.assertEqual(versions[0].edited_by, self.user)
+
+    def test_editorial_studio_direct_channel_posting(self):
+        self.client.login(username="admin_curator", password=self.password)
+
+        # 1. Post to Telegram directly
+        with patch('publishing.alerts.TelegramAlertDispatcher.send_alert', return_value=True) as mock_tg:
+            resp = self.client.post(reverse('dashboard_item_detail', args=[self.item1.id]), {
+                'action': 'post_telegram',
+                'title': 'Live CT Scanner Alert',
+                'editorial_notes': 'Exclusive telegram drop',
+                'short_summary': 'Summary',
+                'media_urls': 'https://example.com/ct.jpg',
+                'original_content': 'Content',
+            })
+            self.assertEqual(resp.status_code, 302)
+            self.item1.refresh_from_db()
+            self.assertEqual(self.item1.status, 'published')
+            mock_tg.assert_called_once()
+
+        # 2. Post to Facebook directly
+        with patch('publishing.publishers.PublishingManager.publish_to_facebook', return_value=True) as mock_fb:
+            resp = self.client.post(reverse('dashboard_item_detail', args=[self.item1.id]), {
+                'action': 'post_facebook',
+                'title': 'FB Post Title',
+                'editorial_notes': '',
+                'short_summary': 'Summary',
+                'media_urls': '',
+                'original_content': 'Content',
+            })
+            self.assertEqual(resp.status_code, 302)
+            mock_fb.assert_called_once()
+
+        # 3. Post to LinkedIn directly
+        with patch('publishing.publishers.PublishingManager.publish_to_linkedin', return_value=True) as mock_li:
+            resp = self.client.post(reverse('dashboard_item_detail', args=[self.item1.id]), {
+                'action': 'post_linkedin',
+                'title': 'LinkedIn Post Title',
+                'editorial_notes': '',
+                'short_summary': 'Summary',
+                'media_urls': '',
+                'original_content': 'Content',
+            })
+            self.assertEqual(resp.status_code, 302)
+            mock_li.assert_called_once()
+
+    def test_media_gallery_rendering_in_template(self):
+        self.client.login(username="admin_curator", password=self.password)
+        self.item1.media_urls = [
+            'https://example.com/gallery1.jpg',
+            'https://example.com/gallery2.jpg'
+        ]
+        self.item1.save(update_fields=['media_urls'])
+
+        resp = self.client.get(reverse('dashboard_item_detail', args=[self.item1.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Attached Visual Media")
+        self.assertContains(resp, "2 Media Assets")
+        self.assertContains(resp, "Image 1 of 2")
+        self.assertContains(resp, "Image 2 of 2")
+        self.assertContains(resp, "https://example.com/gallery1.jpg")
+        self.assertContains(resp, "Pre-Publishing Editorial Studio")

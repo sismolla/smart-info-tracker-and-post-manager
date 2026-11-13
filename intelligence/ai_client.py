@@ -147,12 +147,12 @@ class AIEngine:
                 'opportunity_type': entity_info.get('opportunity_type'),
                 'keywords': entity_info.get('keywords', []),
                 # Structured Financials
-                'estimated_budget': financial_info.get('estimated_budget'),
-                'bid_bond_amount': financial_info.get('bid_bond_amount'),
-                'document_fee': financial_info.get('document_fee'),
-                'salary_min': financial_info.get('salary_min'),
-                'salary_max': financial_info.get('salary_max'),
-                'currency': financial_info.get('currency', 'ETB'),
+                'estimated_budget': financial_info.get('estimated_budget') or None,
+                'bid_bond_amount': financial_info.get('bid_bond_amount') or None,
+                'document_fee': financial_info.get('document_fee') or None,
+                'salary_min': financial_info.get('salary_min') or None,
+                'salary_max': financial_info.get('salary_max') or None,
+                'currency': financial_info.get('currency') or 'ETB',
                 'price': primary_price,
                 # Structured Dates
                 'deadline_iso': dates_info.get('deadline_iso'),
@@ -204,11 +204,13 @@ class AIEngine:
         )
         item.categories.set([category])
 
+        new_tags = []
         for tag_str in extracted_data.get('suggested_tags', []):
             clean_tag = tag_str.strip().lstrip('#').lower()
             if clean_tag:
                 tag, _ = Tag.objects.get_or_create(name=clean_tag, defaults={'slug': clean_tag})
-                item.tags.add(tag)
+                new_tags.append(tag)
+        item.tags.set(new_tags)  # replaces old tags on re-analyze instead of accumulating
 
         # Update item status
         item.status = 'ai_processed'

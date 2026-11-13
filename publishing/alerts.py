@@ -47,6 +47,7 @@ class TelegramAlertDispatcher:
             deadline_line = f"⏰ *Deadline:* {dl}\n"
 
         summary = analysis.short_summary if analysis and analysis.short_summary else item.title
+        editorial_note_block = f"💡 *Editorial Note:*\n_{item.editorial_notes}_\n\n" if item.editorial_notes else ""
 
         msg = (
             f"🚨 *MARKET INTELLIGENCE ALERT*\n\n"
@@ -56,11 +57,34 @@ class TelegramAlertDispatcher:
             f"{financial_line}"
             f"{deadline_line}"
             f"📊 *Relevance:* {score}/100\n\n"
+            f"{editorial_note_block}"
             f"📝 *Summary:* {summary}\n\n"
             f"🔗 [View Source Link]({item.canonical_url or 'https://marketintel.org'})\n"
             f"⚙️ *Source:* {item.source.name}"
         )
 
+        # 1. If item has attached images, attempt Telegram sendPhoto
+        if item.media_urls and isinstance(item.media_urls, list):
+            photo_url = next((u for u in item.media_urls if u and u.startswith('http')), None)
+            if photo_url:
+                photo_url_endpoint = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+                photo_payload = {
+                    'chat_id': chat_id,
+                    'photo': photo_url,
+                    'caption': msg[:1024],
+                    'parse_mode': 'Markdown',
+                }
+                try:
+                    resp = requests.post(photo_url_endpoint, json=photo_payload, timeout=12)
+                    if resp.status_code == 200 and resp.json().get('ok'):
+                        logger.info(f"Sent Telegram photo alert for Item #{item.id} to {chat_id}")
+                        return True
+                    else:
+                        logger.warning(f"Telegram sendPhoto failed: {resp.text}. Falling back to sendMessage.")
+                except Exception as pe:
+                    logger.warning(f"Telegram sendPhoto exception: {pe}. Falling back to sendMessage.")
+
+        # 2. Text sendMessage (primary or photo fallback)
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         payload = {
             'chat_id': chat_id,
