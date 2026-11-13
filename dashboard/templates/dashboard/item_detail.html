@@ -132,6 +132,170 @@
         {% endif %}
       </div>
 
+      <!-- 🎙️ One-Click News Transcription & Bilingual Translation Studio -->
+      <div class="rounded-2xl border border-emerald-200/90 bg-gradient-to-br from-emerald-50/40 via-white to-teal-50/20 p-6 space-y-5 shadow-xs">
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-emerald-100">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🎙️</span>
+            <div>
+              <h2 class="text-sm font-bold text-slate-900">One-Click News Transcription & Bilingual Studio</h2>
+              <p class="text-[11px] text-slate-500">Transform raw scraped items into polished news stories & translate back-and-forth between English and Amharic</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-800 font-mono text-[11px] font-bold">
+              Model: {% if transcription %}{{ transcription.model_used }}{% else %}gemini-3.5-transcribe{% endif %}
+            </span>
+          </div>
+        </div>
+
+        <!-- One-Click Generation Trigger Bar -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Primary Action: Generate Both -->
+          <form method="POST" class="inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="transcribe_both">
+            <button type="submit" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition inline-flex items-center gap-1.5" title="Generate both English and Amharic professional news articles in one click">
+              <span>⚡</span>
+              <span>Make News (Both EN + AM)</span>
+            </button>
+          </form>
+
+          <!-- English News Only -->
+          <form method="POST" class="inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="transcribe_en">
+            <button type="submit" class="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold shadow-2xs transition inline-flex items-center gap-1.5">
+              <span>🇬🇧</span>
+              <span>English News Article</span>
+            </button>
+          </form>
+
+          <!-- Amharic News Only -->
+          <form method="POST" class="inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="transcribe_am">
+            <button type="submit" class="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold shadow-2xs transition inline-flex items-center gap-1.5">
+              <span>🇪🇹</span>
+              <span>Amharic News Article</span>
+            </button>
+          </form>
+
+          <!-- Translate to Amharic -->
+          <form method="POST" class="inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="translate_to_am">
+            <button type="submit" class="px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-semibold shadow-2xs transition inline-flex items-center gap-1.5" title="Translate English text to Amharic">
+              <span>➡️</span>
+              <span>Translate to Amharic</span>
+            </button>
+          </form>
+
+          <!-- Translate to English -->
+          <form method="POST" class="inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="translate_to_en">
+            <button type="submit" class="px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-semibold shadow-2xs transition inline-flex items-center gap-1.5" title="Translate Amharic text to English">
+              <span>⬅️</span>
+              <span>Translate to English</span>
+            </button>
+          </form>
+        </div>
+
+        <!-- Results Display Cards (If Transcribed) -->
+        {% if transcription and transcription.english_text or transcription and transcription.amharic_text %}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+          <!-- English Transcribed Card -->
+          {% if transcription.english_text %}
+          <div class="rounded-xl border border-slate-200 bg-white p-4 space-y-3 shadow-2xs flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+                <span class="text-xs font-bold text-slate-800 inline-flex items-center gap-1.5">
+                  <span>🇬🇧</span>
+                  <span>English News Article</span>
+                </span>
+                <span class="text-[10px] text-slate-400 font-mono">{{ transcription.english_text|wordcount }} words</span>
+              </div>
+              <div class="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap font-sans bg-slate-50 p-3 rounded-lg max-h-64 overflow-y-auto border border-slate-100">
+                {{ transcription.english_text }}
+              </div>
+            </div>
+            <div class="pt-2 flex items-center justify-between border-t border-slate-100">
+              <form method="POST" class="inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="apply_transcription">
+                <input type="hidden" name="target_lang" value="en">
+                <button type="submit" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition inline-flex items-center gap-1 shadow-xs">
+                  <span>📥</span>
+                  <span>Apply to Studio</span>
+                </button>
+              </form>
+              <button type="button" onclick="navigator.clipboard.writeText(`{{ transcription.english_text|escapejs }}`); alert('English news copied to clipboard!');" class="text-[11px] text-slate-500 hover:text-slate-800 font-medium">
+                📋 Copy
+              </button>
+            </div>
+          </div>
+          {% endif %}
+
+          <!-- Amharic Transcribed Card -->
+          {% if transcription.amharic_text %}
+          <div class="rounded-xl border border-slate-200 bg-white p-4 space-y-3 shadow-2xs flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+                <span class="text-xs font-bold text-slate-800 inline-flex items-center gap-1.5">
+                  <span>🇪🇹</span>
+                  <span>የአማርኛ ዜና ጽሁፍ (Amharic News)</span>
+                </span>
+                <span class="text-[10px] text-slate-400 font-mono">{{ transcription.amharic_text|wordcount }} ቃላት</span>
+              </div>
+              <div class="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap font-sans bg-amber-50/50 p-3 rounded-lg max-h-64 overflow-y-auto border border-amber-100">
+                {{ transcription.amharic_text }}
+              </div>
+            </div>
+            <div class="pt-2 flex items-center justify-between border-t border-slate-100">
+              <form method="POST" class="inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="apply_transcription">
+                <input type="hidden" name="target_lang" value="am">
+                <button type="submit" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold transition inline-flex items-center gap-1 shadow-xs">
+                  <span>📥</span>
+                  <span>Apply to Studio</span>
+                </button>
+              </form>
+              <button type="button" onclick="navigator.clipboard.writeText(`{{ transcription.amharic_text|escapejs }}`); alert('Amharic news copied to clipboard!');" class="text-[11px] text-slate-500 hover:text-slate-800 font-medium">
+                📋 Copy
+              </button>
+            </div>
+          </div>
+          {% endif %}
+        </div>
+
+        <!-- Apply Bilingual Button -->
+        {% if transcription.english_text and transcription.amharic_text %}
+        <div class="p-3 rounded-xl bg-white border border-emerald-200/80 flex items-center justify-between shadow-2xs">
+          <div class="text-xs text-slate-700">
+            <span class="font-bold text-slate-900">🌐 Ready for Dual-Language Broadcast:</span>
+            <span class="text-[11px] text-slate-500 block">Post both Amharic and English versions together for complete reach across channels.</span>
+          </div>
+          <form method="POST" class="inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="apply_transcription">
+            <input type="hidden" name="target_lang" value="bilingual">
+            <button type="submit" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 shadow-xs">
+              <span>🚀</span>
+              <span>Apply Bilingual (Both) to Studio</span>
+            </button>
+          </form>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="p-4 rounded-xl bg-emerald-50/50 border border-dashed border-emerald-200 text-center text-xs text-slate-600">
+          <span>💡 Click <strong>"Make News (Both EN + AM)"</strong> to automatically format this announcement into a broadcast-ready news story in both languages.</span>
+        </div>
+        {% endif %}
+      </div>
+
       <!-- Pre-Publishing Editorial Studio & Multi-Channel Publisher -->
       <div class="rounded-2xl border border-indigo-200/90 bg-gradient-to-br from-indigo-50/30 via-white to-blue-50/20 p-6 space-y-5 shadow-xs">
         <div class="flex items-center justify-between pb-3 border-b border-indigo-100">
@@ -188,36 +352,72 @@
             <textarea name="original_content" rows="5" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-2xs leading-relaxed font-sans">{{ item.original_content }}</textarea>
           </div>
 
-          <!-- Multi-Channel Direct Publishing Action Bar -->
-          <div class="pt-3 border-t border-indigo-100 flex flex-wrap items-center justify-between gap-3">
-            <div>
+          <!-- Multi-Channel Publisher — DB-driven channel selector -->
+          <div class="pt-4 border-t border-indigo-100 space-y-4">
+
+            <!-- Save bar -->
+            <div class="flex items-center justify-between flex-wrap gap-2">
               <button type="submit" name="action" value="save_edit" class="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-xs font-semibold text-slate-800 shadow-2xs transition inline-flex items-center gap-1.5">
-                <span>💾</span>
-                <span>Save Edits</span>
+                <span>💾</span><span>Save Edits Only</span>
               </button>
+              <a href="{% url 'dashboard_channels' %}" class="text-[11px] text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-1">
+                📡 Manage Channels ↗
+              </a>
             </div>
 
-            <div class="flex flex-wrap items-center gap-2">
-              <button type="submit" name="action" value="post_telegram" class="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold shadow-xs transition inline-flex items-center gap-1.5" title="Push alert with photo to Telegram Channel">
-                <span>📢</span>
-                <span>Post to Telegram</span>
-              </button>
+            {% if publish_channels %}
+            <!-- Channel selector grid -->
+            <div class="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
+              <p class="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Select Channels to Publish To</p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {% for ch in publish_channels %}
+                <label class="flex items-center gap-3 p-3 rounded-lg border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/40 cursor-pointer transition group">
+                  <input type="checkbox" name="publish_channels" value="{{ ch.id }}"
+                         class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
+                  <span class="shrink-0 text-base">
+                    {% if ch.channel_type == 'telegram' %}📢{% elif ch.channel_type == 'facebook' %}🌐{% else %}💼{% endif %}
+                  </span>
+                  <span class="flex-1 min-w-0">
+                    <span class="block text-xs font-semibold text-slate-900 truncate">{{ ch.name }}</span>
+                    <span class="block text-[10px] text-slate-400">{{ ch.get_channel_type_display }}</span>
+                  </span>
+                  {% if ch.last_test_ok %}
+                  <span class="text-[10px] text-emerald-600 font-semibold shrink-0">✓</span>
+                  {% endif %}
+                </label>
+                {% endfor %}
+              </div>
 
-              <button type="submit" name="action" value="post_facebook" class="px-3.5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold shadow-xs transition inline-flex items-center gap-1.5" title="Post to Meta Facebook Page Feed">
-                <span>🌐</span>
-                <span>Post to Facebook</span>
-              </button>
-
-              <button type="submit" name="action" value="post_linkedin" class="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition inline-flex items-center gap-1.5" title="Post to LinkedIn Organization Page">
-                <span>💼</span>
-                <span>Post to LinkedIn</span>
-              </button>
-
-              <button type="submit" name="action" value="post_all" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition inline-flex items-center gap-1.5" title="Broadcast across Telegram, Facebook, LinkedIn, & Webhooks">
-                <span>🚀</span>
-                <span>Publish to All</span>
-              </button>
+              <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                <!-- Select all / none -->
+                <button type="button" onclick="this.closest('form').querySelectorAll('[name=publish_channels]').forEach(c=>c.checked=true)"
+                        class="text-[11px] text-blue-600 hover:text-blue-800 font-semibold">Select All</button>
+                <span class="text-slate-200">|</span>
+                <button type="button" onclick="this.closest('form').querySelectorAll('[name=publish_channels]').forEach(c=>c.checked=false)"
+                        class="text-[11px] text-slate-500 hover:text-slate-700 font-semibold">Clear</button>
+                <div class="ml-auto flex items-center gap-2">
+                  <button type="submit" name="action" value="post_selected"
+                          class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition inline-flex items-center gap-1.5">
+                    <span>🚀</span><span>Publish to Selected</span>
+                  </button>
+                  <button type="submit" name="action" value="post_all"
+                          class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition inline-flex items-center gap-1.5" title="Publish to ALL active channels at once">
+                    <span>📡</span><span>All Channels</span>
+                  </button>
+                </div>
+              </div>
             </div>
+
+            {% else %}
+            <!-- No channels yet -->
+            <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-5 text-center">
+              <p class="text-xs text-slate-500 font-medium mb-2">No publish channels connected yet.</p>
+              <a href="{% url 'dashboard_channels' %}" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition">
+                📡 Connect Your First Channel
+              </a>
+            </div>
+            {% endif %}
+
           </div>
         </form>
 

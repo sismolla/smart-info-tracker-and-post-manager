@@ -9,8 +9,8 @@ from django.utils import timezone
 from django.conf import settings
 from connectors.models import Connector, ConnectedAccount, InformationSource, CollectionRun
 from intelligence.models import CollectedItem, Category, ExtractedEntity, AIAnalysis, DuplicateGroup, AIDailyUsageTracker, ContentVersion
-from publishing.models import Webhook, Publication
-from publishing.publishers import PublishingManager
+from publishing.models import Webhook, Publication, PublishChannel
+from publishing.publishers import PublishingManager, TelegramDispatcher, FacebookDispatcher, LinkedInDispatcher
 from publishing.alerts import TelegramAlertDispatcher
 from core.models import DatabaseLock, AuditLog, SystemSetting
 from workflows.engine import PipelineEngine
@@ -206,7 +206,7 @@ def item_detail_view(request, item_id):
         action = request.POST.get('action')
 
         # Check if form submitted editorial edits
-        if action in ['save_edit', 'post_telegram', 'post_facebook', 'post_linkedin', 'post_all']:
+        if action in ['save_edit', 'post_telegram', 'post_facebook', 'post_linkedin', 'post_all', 'post_selected']:
             new_title = request.POST.get('title', '').strip()
             new_content = request.POST.get('original_content', '').strip()
             new_editorial_notes = request.POST.get('editorial_notes', '').strip()
@@ -247,37 +247,62 @@ def item_detail_view(request, item_id):
             if action == 'save_edit':
                 messages.success(request, f"Item #{item.id} editorial updates saved (Revision v{current_v + 1}).")
 
+            elif action == 'post_selected':
+                # Multi-channel post: user selected specific channel IDs
+                selected_ids = request.POST.getlist('publish_channels')
+                if not selected_ids:
+                    messages.warning(request, "No channels selected. Tick at least one channel to publish to.")
+                else:
+                    channels = list(PublishChannel.objects.filter(id__in=selected_ids, is_active=True))
+                    results = PublishingManager.publish_to_channels(item, channels, force=True)
+                    success_names = [n for n, ok in results.items() if ok]
+                    fail_names    = [n for n, ok in results.items() if not ok]
+                    if success_names:
+                        item.status = 'published'
+                        item.save(update_fields=['status'])
+                        messages.success(request, f"✅ Published to: {', '.join(success_names)}")
+                    if fail_names:
+                        messages.error(request, f"❌ Failed for: {', '.join(fail_names)} — check channel credentials.")
+
+            elif action == 'post_all':
+                results = PublishingManager.publish_to_all_active(item, force=True)
+                PublishingManager.dispatch_active_webhooks(item)
+                success_names = [n for n, ok in results.items() if ok]
+                fail_names    = [n for n, ok in results.items() if not ok]
+                if results:
+                    item.status = 'published'
+                    item.save(update_fields=['status'])
+                    messages.success(request, f"🚀 Published to all channels: {', '.join(success_names or ['(none active)'])}.")
+                else:
+                    messages.warning(request, "No active publish channels configured. Add channels in Channels Manager.")
+
+            # Legacy single-type shims kept for backward compatibility
             elif action == 'post_telegram':
                 success = TelegramAlertDispatcher.send_alert(item, force=True)
                 if success:
                     item.status = 'published'
                     item.save(update_fields=['status'])
-                    messages.success(request, f"Item #{item.id} changes saved & successfully broadcast to Telegram!")
+                    messages.success(request, f"Item #{item.id} broadcast to Telegram!")
                 else:
-                    messages.error(request, "Failed to broadcast to Telegram. Verify bot credentials and chat ID.")
+                    messages.error(request, "Failed to broadcast to Telegram. Add a Telegram channel in Channels Manager.")
 
             elif action == 'post_facebook':
                 success = PublishingManager.publish_to_facebook(item)
                 if success:
                     item.status = 'published'
                     item.save(update_fields=['status'])
-                    messages.success(request, f"Item #{item.id} changes saved & successfully posted to Facebook Page!")
+                    messages.success(request, f"Item #{item.id} posted to Facebook!")
                 else:
-                    messages.error(request, "Failed to post to Facebook. Verify Facebook Page Access Token and Page ID.")
+                    messages.error(request, "Failed to post to Facebook. Add a Facebook channel in Channels Manager.")
 
             elif action == 'post_linkedin':
                 success = PublishingManager.publish_to_linkedin(item)
                 if success:
                     item.status = 'published'
                     item.save(update_fields=['status'])
-                    messages.success(request, f"Item #{item.id} changes saved & successfully posted to LinkedIn Organization!")
+                    messages.success(request, f"Item #{item.id} posted to LinkedIn!")
                 else:
-                    messages.error(request, "Failed to post to LinkedIn. Verify LinkedIn Token and Org URN.")
-
-            elif action == 'post_all':
-                PublishingManager.publish_item(item, channel='editorial_studio', dispatch_social=True)
-                TelegramAlertDispatcher.send_alert(item, force=True)
-                messages.success(request, f"Item #{item.id} changes saved & published to All Channels (Telegram, Facebook, LinkedIn, & Webhooks)!")
+                    messages.error(request, "Failed to post to LinkedIn. Add a LinkedIn channel in Channels Manager.")
 
         elif action == 'approve':
             item.status = 'approved'
@@ -296,16 +321,128 @@ def item_detail_view(request, item_id):
             from intelligence.ai_client import AIEngine
             AIEngine().analyze_item(item)
             messages.info(request, f"Item #{item.id} re-analyzed by AI Engine.")
+
+        elif action in ['transcribe_both', 'transcribe_en', 'transcribe_am', 'translate_to_am', 'translate_to_en']:
+            from intelligence.transcriber import NewsTranscriber
+            tc = getattr(item, 'transcription', None)
+            existing_en = tc.english_text if tc else ""
+            existing_am = tc.amharic_text if tc else ""
+
+            mode_map = {
+                'transcribe_both': 'both',
+                'transcribe_en': 'news_en',
+                'transcribe_am': 'news_am',
+                'translate_to_am': 'translate_am',
+                'translate_to_en': 'translate_en',
+            }
+            mode = mode_map.get(action, 'both')
+
+            transcriber = NewsTranscriber()
+            res = transcriber.transcribe(
+                content=item.original_content,
+                mode=mode,
+                existing_en=existing_en,
+                existing_am=existing_am
+            )
+
+            if res['success']:
+                TranscribedContent.objects.update_or_create(
+                    item=item,
+                    defaults={
+                        'mode': mode,
+                        'english_text': res['english'],
+                        'amharic_text': res['amharic'],
+                        'model_used': res['model_used'],
+                    }
+                )
+                action_names = {
+                    'transcribe_both': 'Bilingual News (English & Amharic)',
+                    'transcribe_en': 'English News Article',
+                    'transcribe_am': 'Amharic News Article',
+                    'translate_to_am': 'Amharic Translation',
+                    'translate_to_en': 'English Translation',
+                }
+                messages.success(request, f"✨ Successfully generated {action_names.get(action, 'News')} using {res['model_used']}!")
+            else:
+                messages.error(request, "Failed to generate news transcription. Verify your GEMINI_API_KEY in .env.")
+
+        elif action == 'apply_transcription':
+            target_lang = request.POST.get('target_lang', 'en')
+            tc = getattr(item, 'transcription', None)
+            if tc:
+                if target_lang == 'en' and tc.english_text:
+                    lines = [l.strip() for l in tc.english_text.splitlines() if l.strip()]
+                    if lines:
+                        item.title = lines[0][:280]
+                    item.original_content = tc.english_text
+                    item.language = 'en'
+                    item.save()
+                    # Log version history
+                    current_v = item.versions.count()
+                    ContentVersion.objects.create(
+                        item=item,
+                        version_number=current_v + 1,
+                        edited_by=request.user if request.user.is_authenticated else None,
+                        title=item.title,
+                        content_text=item.original_content,
+                        change_summary="Applied English News Article to Editorial Studio"
+                    )
+                    messages.success(request, "Applied English News Article to the Editorial Studio!")
+
+                elif target_lang == 'am' and tc.amharic_text:
+                    lines = [l.strip() for l in tc.amharic_text.splitlines() if l.strip()]
+                    if lines:
+                        item.title = lines[0][:280]
+                    item.original_content = tc.amharic_text
+                    item.language = 'am'
+                    item.save()
+                    current_v = item.versions.count()
+                    ContentVersion.objects.create(
+                        item=item,
+                        version_number=current_v + 1,
+                        edited_by=request.user if request.user.is_authenticated else None,
+                        title=item.title,
+                        content_text=item.original_content,
+                        change_summary="Applied Amharic News Article to Editorial Studio"
+                    )
+                    messages.success(request, "Applied Amharic News Article to the Editorial Studio!")
+
+                elif target_lang == 'bilingual' and (tc.english_text or tc.amharic_text):
+                    bilingual_text = f"🇪🇹 በአማርኛ:\n{tc.amharic_text}\n\n====================\n\n🇬🇧 IN ENGLISH:\n{tc.english_text}"
+                    lines = [l.strip() for l in tc.amharic_text.splitlines() if l.strip()] or [l.strip() for l in tc.english_text.splitlines() if l.strip()]
+                    if lines:
+                        item.title = lines[0][:280]
+                    item.original_content = bilingual_text
+                    item.save()
+                    current_v = item.versions.count()
+                    ContentVersion.objects.create(
+                        item=item,
+                        version_number=current_v + 1,
+                        edited_by=request.user if request.user.is_authenticated else None,
+                        title=item.title,
+                        content_text=item.original_content,
+                        change_summary="Applied Bilingual (Amharic & English) News Article to Editorial Studio"
+                    )
+                    messages.success(request, "Applied Bilingual (Amharic & English) News Article to Editorial Studio!")
+                else:
+                    messages.warning(request, f"No transcribed text available for target: {target_lang}")
+            else:
+                messages.warning(request, "No transcription available yet. Generate one first using the buttons above!")
+
         return redirect('dashboard_item_detail', item_id=item.id)
 
     duplicates = item.duplicate_group.items.exclude(id=item.id) if item.duplicate_group else []
     versions = item.versions.select_related('edited_by')[:5]
+    transcription = getattr(item, 'transcription', None)
+    publish_channels = PublishChannel.objects.filter(is_active=True).order_by('channel_type', 'name')
 
     context = {
         'item': item,
         'duplicates': duplicates,
         'versions': versions,
+        'transcription': transcription,
         'media_urls_text': "\n".join(item.media_urls) if item.media_urls else "",
+        'publish_channels': publish_channels,
     }
     return render(request, 'dashboard/item_detail.html', context)
 
@@ -419,3 +556,97 @@ def health_view(request):
         'python_version': os.sys.version,
     }
     return render(request, 'dashboard/health.html', context)
+
+
+@login_required(login_url='login')
+def channels_view(request):
+    """
+    Publish Channels Manager — connect Telegram, Facebook, and LinkedIn
+    destinations stored in the database instead of .env.
+    """
+    TYPE_FIELDS = {
+        'telegram': ['bot_token', 'chat_id', 'min_score'],
+        'facebook': ['page_access_token', 'page_id'],
+        'linkedin': ['access_token', 'org_urn'],
+    }
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+
+        # --- Add new channel ---
+        if action == 'add_channel':
+            name         = request.POST.get('name', '').strip()
+            channel_type = request.POST.get('channel_type', '').strip()
+            description  = request.POST.get('description', '').strip()
+
+            if not name or channel_type not in TYPE_FIELDS:
+                messages.error(request, "Name and a valid channel type are required.")
+                return redirect('dashboard_channels')
+
+            ch = PublishChannel(name=name, channel_type=channel_type, description=description)
+            cred_keys = TYPE_FIELDS[channel_type]
+            creds = {k: request.POST.get(k, '').strip() for k in cred_keys}
+            ch.set_credentials(creds)
+            ch.save()
+            messages.success(request, f"✅ Channel '{name}' connected successfully!")
+            return redirect('dashboard_channels')
+
+        # --- Toggle active / pause ---
+        elif action == 'toggle_channel':
+            ch = get_object_or_404(PublishChannel, id=request.POST.get('channel_id'))
+            ch.is_active = not ch.is_active
+            ch.save(update_fields=['is_active'])
+            state = "activated" if ch.is_active else "paused"
+            messages.info(request, f"Channel '{ch.name}' {state}.")
+            return redirect('dashboard_channels')
+
+        # --- Delete channel ---
+        elif action == 'delete_channel':
+            ch = get_object_or_404(PublishChannel, id=request.POST.get('channel_id'))
+            name = ch.name
+            ch.delete()
+            messages.warning(request, f"Channel '{name}' removed.")
+            return redirect('dashboard_channels')
+
+        # --- Test / verify credentials ---
+        elif action == 'test_channel':
+            ch = get_object_or_404(PublishChannel, id=request.POST.get('channel_id'))
+            ok, msg = PublishingManager.test_channel(ch)
+            if ok:
+                messages.success(request, f"✅ '{ch.name}' connected — {msg}")
+            else:
+                messages.error(request, f"❌ '{ch.name}' test failed — {msg}")
+            return redirect('dashboard_channels')
+
+        # --- Update credentials inline ---
+        elif action == 'update_channel':
+            ch = get_object_or_404(PublishChannel, id=request.POST.get('channel_id'))
+            ch.name        = request.POST.get('name', ch.name).strip() or ch.name
+            ch.description = request.POST.get('description', '').strip()
+            cred_keys = TYPE_FIELDS.get(ch.channel_type, [])
+            new_creds = {}
+            old_creds = ch.get_credentials()
+            for k in cred_keys:
+                val = request.POST.get(k, '').strip()
+                # Keep old value if field left blank (don't wipe secrets on partial edit)
+                new_creds[k] = val if val else old_creds.get(k, '')
+            ch.set_credentials(new_creds)
+            ch.save()
+            messages.success(request, f"Channel '{ch.name}' updated.")
+            return redirect('dashboard_channels')
+
+    channels = PublishChannel.objects.all().order_by('channel_type', 'name')
+    recent_pubs = Publication.objects.select_related('item').filter(
+        channel__in=['telegram', 'facebook', 'linkedin']
+    ).order_by('-published_at')[:30]
+
+    context = {
+        'channels': channels,
+        'recent_pubs': recent_pubs,
+        'type_labels': {
+            'telegram': ('📢', 'Telegram Bot / Channel', ['Bot Token', 'Chat ID / Channel ID', 'Min Relevance Score']),
+            'facebook': ('🌐', 'Facebook Page', ['Page Access Token', 'Facebook Page ID']),
+            'linkedin': ('💼', 'LinkedIn Organization', ['Access Token', 'Organization URN or ID']),
+        },
+    }
+    return render(request, 'dashboard/channels.html', context)

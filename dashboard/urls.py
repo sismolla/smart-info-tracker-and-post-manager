@@ -10,5 +10,6 @@ urlpatterns = [
     path('items/<int:item_id>/', views.item_detail_view, name='dashboard_item_detail'),
     path('ai-settings/', views.ai_settings_view, name='dashboard_ai_settings'),
     path('publishing/', views.publishing_view, name='dashboard_publishing'),
+    path('channels/', views.channels_view, name='dashboard_channels'),
     path('health-status/', views.health_view, name='dashboard_health'),
 ]

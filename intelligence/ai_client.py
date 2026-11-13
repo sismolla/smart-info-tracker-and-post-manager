@@ -2,13 +2,107 @@ import os
 import re
 import json
 import logging
-from typing import Dict, Any, Optional
+import threading
+from typing import Dict, Any, Optional, List
 from django.conf import settings
 from .language import detect_language
 from .scoring import calculate_relevance_score
 from .models import CollectedItem, AIAnalysis, ExtractedEntity, Category, Tag, AIDailyUsageTracker
 
 logger = logging.getLogger(__name__)
+
+
+class GeminiKeyRotator:
+    """
+    Thread-safe circular API key rotator.
+    Reads GEMINI_API_KEY from settings as a comma-separated list.
+    On quota/rate-limit error, marks the current key as exhausted and
+    advances to the next one. Cycles back to the first key after the last.
+    If all keys are exhausted, signals fallback to heuristic mode.
+    """
+    _lock = threading.Lock()
+    _keys: List[str] = []
+    _current_index: int = 0
+    _exhausted: set = set()
+    _initialized: bool = False
+
+    @classmethod
+    def _load_keys(cls):
+        raw = getattr(settings, 'GEMINI_API_KEY', '') or ''
+        # Support both comma-separated and single key
+        keys = [k.strip() for k in raw.split(',') if k.strip()]
+        cls._keys = keys
+        cls._exhausted = set()
+        cls._current_index = 0
+        cls._initialized = True
+        if keys:
+            logger.info(f"GeminiKeyRotator: Loaded {len(keys)} API key(s).")
+        else:
+            logger.warning("GeminiKeyRotator: No GEMINI_API_KEY configured.")
+
+    @classmethod
+    def get_current_key(cls) -> Optional[str]:
+        with cls._lock:
+            if not cls._initialized:
+                cls._load_keys()
+            if not cls._keys:
+                return None
+            # Find next non-exhausted key starting from current index
+            total = len(cls._keys)
+            for _ in range(total):
+                key = cls._keys[cls._current_index % total]
+                if key not in cls._exhausted:
+                    return key
+                cls._current_index = (cls._current_index + 1) % total
+            return None  # All keys exhausted
+
+    @classmethod
+    def mark_current_exhausted(cls):
+        """Call this when the current key hits a quota/rate-limit error."""
+        with cls._lock:
+            if not cls._keys:
+                return
+            current_key = cls._keys[cls._current_index % len(cls._keys)]
+            cls._exhausted.add(current_key)
+            old_index = cls._current_index
+            cls._current_index = (cls._current_index + 1) % len(cls._keys)
+            remaining = len(cls._keys) - len(cls._exhausted)
+            logger.warning(
+                f"GeminiKeyRotator: Key #{old_index + 1} exhausted/failed. "
+                f"Rotating to key #{cls._current_index + 1}. "
+                f"{remaining}/{len(cls._keys)} key(s) remaining."
+            )
+
+    @classmethod
+    def reset_all(cls):
+        """Resets all exhausted flags — call at start of a new day."""
+        with cls._lock:
+            if not cls._initialized:
+                cls._load_keys()
+            cls._exhausted = set()
+            cls._current_index = 0
+            logger.info("GeminiKeyRotator: All keys reset for new cycle.")
+
+    @classmethod
+    def all_exhausted(cls) -> bool:
+        with cls._lock:
+            if not cls._initialized:
+                cls._load_keys()
+            if not cls._keys:
+                return True
+            return len(cls._exhausted) >= len(cls._keys)
+
+    @classmethod
+    def status(cls) -> dict:
+        with cls._lock:
+            if not cls._initialized:
+                cls._load_keys()
+            return {
+                'total_keys': len(cls._keys),
+                'exhausted_keys': len(cls._exhausted),
+                'active_keys': len(cls._keys) - len(cls._exhausted),
+                'current_index': cls._current_index,
+            }
 
 SYSTEM_PROMPT = """
 You are an expert Market Intelligence and Business Information Extraction Engine.
@@ -62,22 +156,108 @@ CRITICAL RULES:
 class AIEngine:
     """
     Modular AI Intelligence Engine powered by Google Gemini API with Structured Schema Parsing.
-    Relegates Regex strictly to URL and phone formatting while using Semantic AI for
-    financial disambiguation, calendar conversion, and scoring.
+    Uses circular multi-key rotation: when one key hits quota/rate-limits, automatically
+    advances to the next key in the pool, cycling back to the first after the last.
+    Falls back to semantic heuristic only when ALL keys are exhausted.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
-        self.api_key = api_key or getattr(settings, 'GEMINI_API_KEY', '')
-        self.model_name = model_name or getattr(settings, 'GEMINI_MODEL', 'gemini-1.5-flash')
-        self._gemini_client = None
+    FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-flash-latest']
 
-        if self.api_key:
-            try:
-                import google.generativeai as genai
-                genai.configure(api_key=self.api_key)
-                self._gemini_client = genai.GenerativeModel(self.model_name)
-            except Exception as e:
-                logger.warning(f"Could not initialize Google Generative AI client: {e}")
+    def __init__(self, model_name: Optional[str] = None):
+        self.model_name = model_name or getattr(settings, 'GEMINI_MODEL', 'gemini-2.5-flash')
+        self.candidate_models = []
+        for m in [self.model_name] + self.FALLBACK_MODELS:
+            if m and m not in self.candidate_models:
+                self.candidate_models.append(m)
+
+    def _execute_api_call(self, api_key: str, model: str, prompt: str) -> Optional[dict]:
+        """Tries executing the generate_content call using google.genai, then legacy google.generativeai."""
+        # 1. Try modern google.genai
+        try:
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config={"response_mime_type": "application/json"}
+            )
+            if response and response.text and response.text.strip():
+                cleaned = response.text.strip()
+                if cleaned.startswith("```"):
+                    cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+                    cleaned = re.sub(r'\s*```$', '', cleaned)
+                return json.loads(cleaned)
+        except Exception as e_genai:
+            err_str = str(e_genai).lower()
+            if any(kw in err_str for kw in ['quota', 'rate', '429', 'exceeded', 'resource_exhausted', 'billing']):
+                raise e_genai
+            logger.debug(f"google.genai json call with {model} failed: {e_genai}")
+
+        # 2. Try legacy google.generativeai
+        try:
+            import google.generativeai as legacy_genai
+            legacy_genai.configure(api_key=api_key)
+            client = legacy_genai.GenerativeModel(model)
+            response = client.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            if response and response.text and response.text.strip():
+                cleaned = response.text.strip()
+                if cleaned.startswith("```"):
+                    cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+                    cleaned = re.sub(r'\s*```$', '', cleaned)
+                return json.loads(cleaned)
+        except Exception as e_legacy:
+            err_str = str(e_legacy).lower()
+            if any(kw in err_str for kw in ['quota', 'rate', '429', 'exceeded', 'resource_exhausted', 'billing']):
+                raise e_legacy
+            logger.debug(f"google.generativeai json call with {model} failed: {e_legacy}")
+
+        return None
+
+    def _call_gemini(self, prompt: str) -> Optional[dict]:
+        """
+        Attempts the Gemini API call with circular key rotation.
+        Tries each key in the pool once per call. On quota/rate error,
+        marks the key exhausted and rotates to the next.
+        Returns parsed JSON dict on success, or None if all keys fail.
+        """
+        if GeminiKeyRotator.all_exhausted():
+            logger.warning("All Gemini API keys exhausted. Using heuristic fallback.")
+            return None
+
+        total_keys = len(GeminiKeyRotator._keys) or 1
+        for attempt in range(total_keys):
+            api_key = GeminiKeyRotator.get_current_key()
+            if not api_key:
+                break
+
+            for model_to_use in self.candidate_models:
+                try:
+                    result = self._execute_api_call(api_key, model_to_use, prompt)
+                    if result:
+                        logger.debug(f"Gemini call succeeded on key #{GeminiKeyRotator._current_index + 1} with model {model_to_use}")
+                        return result
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if any(kw in err_str for kw in [
+                        'quota', 'rate', 'limit', 'exceeded', '429', 'resource_exhausted',
+                        'billing', 'invalid_api_key', 'api_key'
+                    ]):
+                        logger.warning(
+                            f"Key #{GeminiKeyRotator._current_index + 1} hit quota/rate error: {e}. Rotating key."
+                        )
+                        GeminiKeyRotator.mark_current_exhausted()
+                        break  # Break candidate model loop to rotate key
+                    elif any(kw in err_str for kw in ['not found', '404', 'unsupported', 'invalid_argument']):
+                        logger.info(f"Model '{model_to_use}' unsupported for schema parsing ({e}). Trying next model.")
+                        continue
+                    else:
+                        logger.warning(f"Gemini error on model {model_to_use}: {e}.")
+                        continue
+
+        return None  # All keys tried and failed
 
     def analyze_item(self, item: CollectedItem) -> AIAnalysis:
         """
@@ -88,34 +268,27 @@ class AIEngine:
             item.save()
 
         raw_text = f"Title: {item.title}\n\nContent:\n{item.original_content}\n\nSource: {item.source.name if item.source else 'Unknown'}"
-        
+
         extracted_data = None
         token_usage = {'prompt_tokens': 0, 'completion_tokens': 0}
+        used_gemini = False
 
-        # 1. Attempt Gemini Structured Schema Output (protected by AI Daily Budget Circuit Breaker)
-        if self._gemini_client:
+        # 1. Attempt Gemini (with circular key rotation) — protected by daily budget breaker
+        if not GeminiKeyRotator.all_exhausted():
             if not AIDailyUsageTracker.can_call_ai():
-                logger.warning(f"AI Daily Spend Cap / Call Limit reached. Tripping circuit breaker for item #{item.id} and routing to semantic fallback.")
+                logger.warning(
+                    f"Daily AI spend cap reached. Routing item #{item.id} to heuristic fallback."
+                )
             else:
-                try:
-                    prompt = f"{SYSTEM_PROMPT}\n\nINPUT DATA:\n{raw_text}"
-                    response = self._gemini_client.generate_content(
-                        prompt,
-                        generation_config={"response_mime_type": "application/json"}
-                    )
-                    if response and response.text:
-                        cleaned_json = response.text.strip()
-                        if cleaned_json.startswith("```"):
-                            cleaned_json = re.sub(r'^```(?:json)?\s*', '', cleaned_json)
-                            cleaned_json = re.sub(r'\s*```$', '', cleaned_json)
-                        extracted_data = json.loads(cleaned_json)
-                        p_tokens = len(prompt.split())
-                        c_tokens = len(response.text.split())
-                        token_usage['prompt_tokens'] = p_tokens
-                        token_usage['completion_tokens'] = c_tokens
-                        AIDailyUsageTracker.record_usage(p_tokens, c_tokens)
-                except Exception as e:
-                    logger.warning(f"Gemini API call failed for item #{item.id}: {e}. Engaging semantic heuristic fallback.")
+                prompt = f"{SYSTEM_PROMPT}\n\nINPUT DATA:\n{raw_text}"
+                extracted_data = self._call_gemini(prompt)
+                if extracted_data:
+                    used_gemini = True
+                    p_tokens = len(prompt.split())
+                    c_tokens = len(json.dumps(extracted_data).split())
+                    token_usage['prompt_tokens'] = p_tokens
+                    token_usage['completion_tokens'] = c_tokens
+                    AIDailyUsageTracker.record_usage(p_tokens, c_tokens)
 
         # 2. Fallback to Semantic Heuristic Parser
         if not extracted_data:
@@ -181,7 +354,7 @@ class AIEngine:
         analysis, _ = AIAnalysis.objects.update_or_create(
             item=item,
             defaults={
-                'provider': 'gemini' if self._gemini_client else 'semantic_heuristic_fallback',
+                'provider': f'gemini/{self.model_name}' if used_gemini else 'semantic_heuristic_fallback',
                 'model_name': self.model_name,
                 'short_summary': extracted_data.get('short_summary', item.title),
                 'detailed_summary': extracted_data.get('detailed_summary', item.original_content[:500]),

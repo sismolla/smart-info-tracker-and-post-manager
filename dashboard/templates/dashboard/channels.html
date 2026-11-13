@@ -1,0 +1,360 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Publish Channels — Market Intelligence{% endblock %}
+
+{% block content %}
+<div class="space-y-8 max-w-6xl mx-auto">
+
+  <!-- Page Header -->
+  <div class="p-6 rounded-2xl border border-slate-200/90 bg-white shadow-xs">
+    <div class="flex items-center justify-between flex-wrap gap-4">
+      <div>
+        <h1 class="text-xl font-bold text-slate-900">📡 Publish Channels Manager</h1>
+        <p class="text-sm text-slate-500 mt-1">Connect as many Telegram bots, Facebook pages, and LinkedIn organizations as you need. Credentials are <strong>encrypted in the database</strong> — no .env required.</p>
+      </div>
+      <button onclick="document.getElementById('add-channel-modal').classList.remove('hidden')"
+              class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-xs transition inline-flex items-center gap-2">
+        <span>＋</span> Connect New Channel
+      </button>
+    </div>
+  </div>
+
+  <!-- Connected Channels Grid -->
+  {% if channels %}
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+    {% for ch in channels %}
+    <div class="rounded-2xl border {% if ch.is_active %}border-slate-200/90 bg-white{% else %}border-slate-100 bg-slate-50/80{% endif %} shadow-xs overflow-hidden flex flex-col">
+
+      <!-- Channel Header -->
+      <div class="px-5 pt-5 pb-4 flex items-start justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0
+            {% if ch.channel_type == 'telegram' %}bg-sky-100{% elif ch.channel_type == 'facebook' %}bg-blue-100{% else %}bg-blue-50{% endif %}">
+            {% if ch.channel_type == 'telegram' %}📢{% elif ch.channel_type == 'facebook' %}🌐{% else %}💼{% endif %}
+          </div>
+          <div class="min-w-0">
+            <h3 class="text-sm font-bold text-slate-900 truncate">{{ ch.name }}</h3>
+            <span class="text-[11px] text-slate-500">{{ ch.get_channel_type_display }}</span>
+            {% if ch.description %}
+            <p class="text-[11px] text-slate-400 mt-0.5 truncate">{{ ch.description }}</p>
+            {% endif %}
+          </div>
+        </div>
+        <!-- Active Status Badge -->
+        <span class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold border
+          {% if ch.is_active %}bg-emerald-50 text-emerald-700 border-emerald-200{% else %}bg-slate-100 text-slate-500 border-slate-200{% endif %}">
+          {% if ch.is_active %}Active{% else %}Paused{% endif %}
+        </span>
+      </div>
+
+      <!-- Credential Preview -->
+      <div class="px-5 pb-4 space-y-1.5">
+        {% for k, v in ch.masked_credentials.items %}
+        <div class="flex items-center justify-between text-xs py-1 border-b border-slate-50 last:border-0">
+          <span class="text-slate-400 capitalize font-medium">{{ k|cut:"_" }}</span>
+          <span class="font-mono text-slate-700 text-[11px] truncate max-w-[180px]" title="{{ v }}">{{ v|default:"—" }}</span>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Last Test Status -->
+      {% if ch.last_tested_at %}
+      <div class="px-5 py-2.5 border-t border-slate-100 bg-slate-50/60">
+        <div class="flex items-center gap-2 text-[11px]">
+          <span>{% if ch.last_test_ok %}✅{% else %}❌{% endif %}</span>
+          <span class="text-slate-600 truncate">{{ ch.last_test_message|default:"Tested" }}</span>
+          <span class="text-slate-400 ml-auto shrink-0">{{ ch.last_tested_at|timesince }} ago</span>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Action Bar -->
+      <div class="px-5 py-3 border-t border-slate-100 flex items-center gap-2 mt-auto flex-wrap">
+        <!-- Test -->
+        <form method="POST" class="inline">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="test_channel">
+          <input type="hidden" name="channel_id" value="{{ ch.id }}">
+          <button type="submit" class="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+            🔌 Test
+          </button>
+        </form>
+
+        <!-- Toggle Active -->
+        <form method="POST" class="inline">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="toggle_channel">
+          <input type="hidden" name="channel_id" value="{{ ch.id }}">
+          <button type="submit" class="px-3 py-1.5 rounded-lg text-[11px] font-semibold transition
+            {% if ch.is_active %}bg-amber-50 hover:bg-amber-100 text-amber-700{% else %}bg-emerald-50 hover:bg-emerald-100 text-emerald-700{% endif %}">
+            {% if ch.is_active %}⏸ Pause{% else %}▶ Activate{% endif %}
+          </button>
+        </form>
+
+        <!-- Edit -->
+        <button onclick="openEditModal('{{ ch.id }}', '{{ ch.name|escapejs }}', '{{ ch.channel_type }}', '{{ ch.description|escapejs }}', {{ ch.get_credentials|safe }})"
+                class="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 transition">
+          ✏️ Edit
+        </button>
+
+        <!-- Delete -->
+        <form method="POST" class="inline ml-auto" onsubmit="return confirm('Remove channel \'{{ ch.name|escapejs }}\'? This cannot be undone.')">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="delete_channel">
+          <input type="hidden" name="channel_id" value="{{ ch.id }}">
+          <button type="submit" class="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 transition">
+            🗑 Remove
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <!-- Empty State -->
+  <div class="p-16 rounded-2xl border border-dashed border-slate-200 bg-white text-center">
+    <div class="text-5xl mb-4">📡</div>
+    <h2 class="text-lg font-bold text-slate-800 mb-1">No Channels Connected Yet</h2>
+    <p class="text-sm text-slate-500 max-w-md mx-auto mb-6">Connect your first Telegram bot, Facebook page, or LinkedIn organization. Credentials are stored encrypted in the database — not in .env files.</p>
+    <button onclick="document.getElementById('add-channel-modal').classList.remove('hidden')"
+            class="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-xs transition">
+      ＋ Connect First Channel
+    </button>
+  </div>
+  {% endif %}
+
+  <!-- Recent Publication Log -->
+  {% if recent_pubs %}
+  <div class="rounded-2xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-100">
+      <h2 class="text-sm font-bold text-slate-900">Recent Publication Activity</h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-xs divide-y divide-slate-100">
+        <thead class="bg-slate-50/80 text-slate-500 uppercase font-semibold text-[10px] tracking-wider">
+          <tr>
+            <th class="px-4 py-3">Item</th>
+            <th class="px-4 py-3">Channel</th>
+            <th class="px-4 py-3">Destination</th>
+            <th class="px-4 py-3">Status</th>
+            <th class="px-4 py-3">When</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+          {% for pub in recent_pubs %}
+          <tr class="hover:bg-slate-50/60 transition-colors">
+            <td class="px-4 py-3 max-w-xs">
+              <a href="{% url 'dashboard_item_detail' pub.item.id %}" class="text-blue-600 hover:text-blue-800 font-medium line-clamp-1">
+                {{ pub.item.title|truncatechars:55 }}
+              </a>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="px-2 py-0.5 rounded-md text-[10px] font-bold border
+                {% if pub.channel == 'telegram' %}bg-sky-50 text-sky-700 border-sky-200
+                {% elif pub.channel == 'facebook' %}bg-blue-50 text-blue-700 border-blue-200
+                {% elif pub.channel == 'linkedin' %}bg-indigo-50 text-indigo-700 border-indigo-200
+                {% else %}bg-slate-100 text-slate-600 border-slate-200{% endif %}">
+                {{ pub.channel|title }}
+              </span>
+            </td>
+            <td class="px-4 py-3 text-slate-600 max-w-[200px] truncate">{{ pub.destination|default:"—" }}</td>
+            <td class="px-4 py-3">
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold
+                {% if pub.status == 'published' %}text-emerald-700 bg-emerald-50 border border-emerald-200
+                {% else %}text-rose-700 bg-rose-50 border border-rose-200{% endif %}">
+                {{ pub.status|title }}
+              </span>
+            </td>
+            <td class="px-4 py-3 text-slate-400 whitespace-nowrap">{{ pub.published_at|date:"M d, H:i" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- ================================================================ -->
+<!-- ADD CHANNEL MODAL                                                 -->
+<!-- ================================================================ -->
+<div id="add-channel-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden">
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <h3 class="text-base font-bold text-slate-900">Connect New Publish Channel</h3>
+      <button onclick="document.getElementById('add-channel-modal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+    </div>
+
+    <form method="POST" class="p-6 space-y-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add_channel">
+
+      <div>
+        <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Channel Type</label>
+        <select name="channel_type" id="add-channel-type" onchange="showCredentialFields(this.value)"
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+          <option value="">— Select type —</option>
+          <option value="telegram">📢 Telegram Bot / Channel</option>
+          <option value="facebook">🌐 Facebook Page</option>
+          <option value="linkedin">💼 LinkedIn Organization</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Channel Label</label>
+        <input type="text" name="name" placeholder="e.g. Pharma Gebeya TG Main" required
+               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+      </div>
+
+      <div>
+        <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Description (optional)</label>
+        <input type="text" name="description" placeholder="e.g. Main Ethiopian pharma news channel"
+               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+      </div>
+
+      <!-- Telegram fields -->
+      <div id="fields-telegram" class="hidden space-y-3">
+        <div class="p-4 rounded-xl bg-sky-50/80 border border-sky-200/80 space-y-3">
+          <p class="text-[11px] text-sky-800 font-semibold">🤖 Get your Bot Token from <a href="https://t.me/BotFather" target="_blank" class="underline">@BotFather</a>. Chat ID is the channel or group ID (e.g. -1001234567890).</p>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">Bot Token</label>
+            <input type="text" name="bot_token" placeholder="123456789:AAxxxxxxxxxxxxxx"
+                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white">
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">Chat ID / Channel Username</label>
+            <input type="text" name="chat_id" placeholder="-1001234567890 or @yourchannel"
+                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white">
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">Min Relevance Score (0 = post all)</label>
+            <input type="number" name="min_score" value="0" min="0" max="100"
+                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white">
+          </div>
+        </div>
+      </div>
+
+      <!-- Facebook fields -->
+      <div id="fields-facebook" class="hidden space-y-3">
+        <div class="p-4 rounded-xl bg-blue-50/80 border border-blue-200/80 space-y-3">
+          <p class="text-[11px] text-blue-800 font-semibold">🔑 Get a Page Access Token from Meta for Developers → Your App → Graph API Explorer. Set Page ID to the numeric ID of your page.</p>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">Page Access Token</label>
+            <input type="text" name="page_access_token" placeholder="EAAxxxxxx..."
+                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">Facebook Page ID</label>
+            <input type="text" name="page_id" placeholder="123456789012345"
+                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+          </div>
+        </div>
+      </div>
+
+      <!-- LinkedIn fields -->
+      <div id="fields-linkedin" class="hidden space-y-3">
+        <div class="p-4 rounded-xl bg-indigo-50/80 border border-indigo-200/80 space-y-3">
+          <p class="text-[11px] text-indigo-800 font-semibold">🔑 Get an OAuth Access Token from the LinkedIn Developer Portal with <code>w_member_social</code> scope. Org URN is your organization's numeric ID.</p>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">Access Token</label>
+            <input type="text" name="access_token" placeholder="AQVxxxxxx..."
+                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">Organization URN or ID</label>
+            <input type="text" name="org_urn" placeholder="urn:li:organization:1234567 or just 1234567"
+                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-2 flex justify-end gap-3">
+        <button type="button" onclick="document.getElementById('add-channel-modal').classList.add('hidden')"
+                class="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+          Cancel
+        </button>
+        <button type="submit" class="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-xs transition">
+          Connect Channel
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- EDIT CHANNEL MODAL -->
+<div id="edit-channel-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden">
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <h3 class="text-base font-bold text-slate-900">Edit Channel</h3>
+      <button onclick="document.getElementById('edit-channel-modal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+    </div>
+    <form method="POST" id="edit-channel-form" class="p-6 space-y-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="update_channel">
+      <input type="hidden" name="channel_id" id="edit-channel-id">
+      <input type="hidden" name="channel_type" id="edit-channel-type-hidden">
+      <div>
+        <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Label</label>
+        <input type="text" name="name" id="edit-name" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+      </div>
+      <div>
+        <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Description</label>
+        <input type="text" name="description" id="edit-description" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+      </div>
+      <div id="edit-cred-fields" class="space-y-3"></div>
+      <p class="text-[11px] text-slate-400">Leave credential fields blank to keep existing values.</p>
+      <div class="pt-2 flex justify-end gap-3">
+        <button type="button" onclick="document.getElementById('edit-channel-modal').classList.add('hidden')"
+                class="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">Cancel</button>
+        <button type="submit" class="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-xs transition">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const CRED_FIELDS = {
+  telegram: [
+    {key: 'bot_token',  label: 'Bot Token',         placeholder: 'Leave blank to keep current'},
+    {key: 'chat_id',    label: 'Chat ID',            placeholder: 'Leave blank to keep current'},
+    {key: 'min_score',  label: 'Min Relevance Score', placeholder: '0'},
+  ],
+  facebook: [
+    {key: 'page_access_token', label: 'Page Access Token', placeholder: 'Leave blank to keep current'},
+    {key: 'page_id',           label: 'Facebook Page ID',   placeholder: 'Leave blank to keep current'},
+  ],
+  linkedin: [
+    {key: 'access_token', label: 'Access Token',       placeholder: 'Leave blank to keep current'},
+    {key: 'org_urn',      label: 'Organization URN/ID', placeholder: 'Leave blank to keep current'},
+  ],
+};
+
+function showCredentialFields(type) {
+  ['telegram','facebook','linkedin'].forEach(t => {
+    document.getElementById('fields-' + t).classList.add('hidden');
+  });
+  if (type && document.getElementById('fields-' + type)) {
+    document.getElementById('fields-' + type).classList.remove('hidden');
+  }
+}
+
+function openEditModal(id, name, type, description, creds) {
+  document.getElementById('edit-channel-id').value = id;
+  document.getElementById('edit-channel-type-hidden').value = type;
+  document.getElementById('edit-name').value = name;
+  document.getElementById('edit-description').value = description;
+  const fields = CRED_FIELDS[type] || [];
+  const container = document.getElementById('edit-cred-fields');
+  container.innerHTML = fields.map(f => `
+    <div>
+      <label class="block text-[11px] font-bold text-slate-600 mb-1">${f.label}</label>
+      <input type="text" name="${f.key}" placeholder="${f.placeholder}"
+             class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+    </div>
+  `).join('');
+  document.getElementById('edit-channel-modal').classList.remove('hidden');
+}
+</script>
+{% endblock %}

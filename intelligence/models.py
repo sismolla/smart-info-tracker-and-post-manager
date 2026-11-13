@@ -192,6 +192,33 @@ class AIAnalysis(models.Model):
         return f"AI Analysis for #{self.item.id} (Score: {self.relevance_score}/100)"
 
 
+class TranscribedContent(models.Model):
+    """
+    Stores professional news rewrites and translations of collected items.
+    Both English and Amharic versions live here, produced by NewsTranscriber.
+    """
+    MODES = [
+        ('news_en',      'English News Article'),
+        ('news_am',      'Amharic News Article'),
+        ('translate_am', 'Translated → Amharic'),
+        ('translate_en', 'Translated → English'),
+        ('both',         'Both Languages'),
+    ]
+
+    item = models.OneToOneField(
+        CollectedItem, on_delete=models.CASCADE, related_name='transcription'
+    )
+    mode = models.CharField(max_length=20, choices=MODES, default='both')
+    english_text = models.TextField(blank=True)
+    amharic_text = models.TextField(blank=True)
+    model_used = models.CharField(max_length=80, default='gemini-2.0-flash')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Transcription for Item #{self.item.id} [{self.get_mode_display()}]"
+
+
 class AIDailyUsageTracker(models.Model):
     """
     Monitors daily AI token consumption, API calls, and estimated dollar costs.
@@ -215,13 +242,24 @@ class AIDailyUsageTracker(models.Model):
 
     @classmethod
     def can_call_ai(cls) -> bool:
-        """Checks if current day usage is below spend limit and call limit."""
+        """Checks if current day usage is below spend limit and call limit.
+        Also resets the GeminiKeyRotator at the start of each new day so
+        previously exhausted keys are eligible again.
+        """
         from django.conf import settings
         max_cost = getattr(settings, 'AI_DAILY_SPEND_LIMIT_USD', 2.00)
         max_calls = getattr(settings, 'AI_DAILY_MAX_CALLS', 500)
         
         today = timezone.now().date()
-        tracker, _ = cls.objects.get_or_create(date=today)
+        tracker, created = cls.objects.get_or_create(date=today)
+
+        # New day → reset all Gemini key exhaustion flags
+        if created:
+            try:
+                from intelligence.ai_client import GeminiKeyRotator
+                GeminiKeyRotator.reset_all()
+            except Exception:
+                pass
         
         if tracker.is_circuit_breaker_tripped:
             return False

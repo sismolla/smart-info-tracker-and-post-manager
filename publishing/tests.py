@@ -119,20 +119,28 @@ class PublishingAndAlertTests(TestCase):
                 self.assertEqual(pub.status, 'published')
 
     def test_facebook_publishing_success(self):
+        """
+        Facebook posts article body text directly (news-channel style), not the item title.
+        Message = editorial_note (if any) + original_content + source name.
+        """
         with override_settings(FACEBOOK_PAGE_ACCESS_TOKEN="fb_token_abc", FACEBOOK_PAGE_ID="123456789012345"):
             with patch('requests.post') as mock_post:
                 mock_post.return_value = MagicMock(status_code=200, text="OK")
                 success = PublishingManager.publish_to_facebook(self.item)
                 self.assertTrue(success)
                 self.assertEqual(mock_post.call_count, 1)
-                
+
                 call_args = mock_post.call_args
                 url = call_args[0][0]
                 data = call_args[1]['data']
                 self.assertIn("123456789012345/feed", url)
                 self.assertEqual(data['access_token'], "fb_token_abc")
-                self.assertIn(self.item.title, data['message'])
-                
+                # Article body posted directly — not the structured title
+                self.assertIn('Procurement of surgical gloves and masks', data['message'])
+                self.assertIn('News Portal', data['message'])  # source attribution
+                # Old structured alert fields must NOT appear
+                self.assertNotIn('MARKET INTELLIGENCE ALERT', data['message'])
+
                 # Verify Publication record
                 pub = Publication.objects.filter(item=self.item, channel='facebook').first()
                 self.assertIsNotNone(pub)
