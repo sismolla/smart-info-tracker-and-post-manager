@@ -74,6 +74,11 @@ class PublishingAndAlertTests(TestCase):
             self.assertFalse(result)
 
     def test_telegram_alert_dispatch_success(self):
+        """
+        Telegram posts the article body text directly (news-channel style).
+        No relevance scores, no budget fields, no structured metadata headers.
+        The article original_content and source name should appear in the text.
+        """
         with override_settings(TELEGRAM_BOT_TOKEN="12345:dummy", TELEGRAM_ALERT_CHAT_ID="-10099999", TELEGRAM_ALERT_MIN_SCORE=75):
             with patch('requests.post') as mock_post:
                 mock_post.return_value = MagicMock(
@@ -83,11 +88,16 @@ class PublishingAndAlertTests(TestCase):
                 success = TelegramAlertDispatcher.send_alert(self.item)
                 self.assertTrue(success)
                 self.assertEqual(mock_post.call_count, 1)
-                
+
                 payload = mock_post.call_args[1]['json']
                 self.assertEqual(payload['chat_id'], '-10099999')
-                self.assertIn('AAHB/MED/2026/01', payload['text'])
-                self.assertIn('5,000,000 ETB', payload['text'])
+                # Body text posted directly — no structured metadata
+                self.assertIn('Procurement of surgical gloves and masks', payload['text'])
+                self.assertIn('News Portal', payload['text'])   # source attribution
+                # Old structured fields must NOT appear
+                self.assertNotIn('MARKET INTELLIGENCE ALERT', payload['text'])
+                self.assertNotIn('Relevance:', payload['text'])
+                self.assertNotIn('5,000,000 ETB', payload['text'])
 
     def test_linkedin_publishing_success(self):
         with override_settings(LINKEDIN_ACCESS_TOKEN="dummy_token_123", LINKEDIN_ORG_URN="urn:li:organization:9847123"):
