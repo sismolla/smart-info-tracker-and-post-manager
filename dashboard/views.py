@@ -283,6 +283,30 @@ def publishing_view(request):
                 messages.warning(request, "No intelligence items available to send test alert.")
             return redirect('dashboard_publishing')
 
+        elif action == 'test_facebook_post':
+            sample_item = CollectedItem.objects.select_related('source', 'entities', 'ai_analysis').first()
+            if sample_item:
+                success = PublishingManager.publish_to_facebook(sample_item)
+                if success:
+                    messages.success(request, "Test Post published successfully to Facebook Page!")
+                else:
+                    messages.error(request, "Facebook post failed. Verify FACEBOOK_PAGE_ACCESS_TOKEN and FACEBOOK_PAGE_ID in .env.")
+            else:
+                messages.warning(request, "No intelligence items available to send test post.")
+            return redirect('dashboard_publishing')
+
+        elif action == 'test_linkedin_post':
+            sample_item = CollectedItem.objects.select_related('source', 'entities', 'ai_analysis').first()
+            if sample_item:
+                success = PublishingManager.publish_to_linkedin(sample_item)
+                if success:
+                    messages.success(request, "Test Post published successfully to LinkedIn Organization!")
+                else:
+                    messages.error(request, "LinkedIn post failed. Verify LINKEDIN_ACCESS_TOKEN and LINKEDIN_ORG_URN in .env.")
+            else:
+                messages.warning(request, "No intelligence items available to send test post.")
+            return redirect('dashboard_publishing')
+
     publications = Publication.objects.select_related('item')[:20]
     webhooks = Webhook.objects.all()
 
@@ -292,6 +316,10 @@ def publishing_view(request):
         'alert_chat_id': getattr(settings, 'TELEGRAM_ALERT_CHAT_ID', ''),
         'alert_min_score': getattr(settings, 'TELEGRAM_ALERT_MIN_SCORE', 75),
         'has_bot_token': bool(getattr(settings, 'TELEGRAM_BOT_TOKEN', '')),
+        'has_facebook_token': bool(getattr(settings, 'FACEBOOK_PAGE_ACCESS_TOKEN', '')),
+        'facebook_page_id': getattr(settings, 'FACEBOOK_PAGE_ID', ''),
+        'has_linkedin_token': bool(getattr(settings, 'LINKEDIN_ACCESS_TOKEN', '')),
+        'linkedin_org_urn': getattr(settings, 'LINKEDIN_ORG_URN', ''),
     }
     return render(request, 'dashboard/publishing.html', context)
 

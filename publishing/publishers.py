@@ -66,9 +66,10 @@ class PublishingManager:
         }
 
     @classmethod
-    def publish_item(cls, item: CollectedItem, channel: str = 'webhook') -> Publication:
+    def publish_item(cls, item: CollectedItem, channel: str = 'webhook', dispatch_social: bool = True) -> Publication:
         """
-        Publishes an approved item and dispatches to registered active webhooks.
+        Publishes an approved item and dispatches to registered active webhooks,
+        as well as LinkedIn and Facebook if credentials are configured.
         """
         payload = cls.format_item_payload(item)
         
@@ -88,7 +89,147 @@ class PublishingManager:
         for wh in active_webhooks:
             cls.dispatch_webhook(wh, event_type='item.published', payload=payload)
 
+        # 3. Dispatch to Social Channels if enabled
+        if dispatch_social:
+            cls.publish_to_linkedin(item)
+            cls.publish_to_facebook(item)
+
         return pub
+
+    @classmethod
+    def publish_to_linkedin(cls, item: CollectedItem) -> bool:
+        """
+        Publishes formatted intelligence post to authorized LinkedIn Company / Organization page
+        via LinkedIn UGC Posts API v2.
+        """
+        from django.conf import settings
+        token = getattr(settings, 'LINKEDIN_ACCESS_TOKEN', '')
+        org_urn = getattr(settings, 'LINKEDIN_ORG_URN', '')
+        if not token or not org_urn:
+            logger.debug("LinkedIn publishing skipped: LINKEDIN_ACCESS_TOKEN or LINKEDIN_ORG_URN not configured.")
+            return False
+
+        if not org_urn.startswith('urn:li:organization:'):
+            org_urn = f"urn:li:organization:{org_urn}"
+
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json',
+            'X-Restli-Protocol-Version': '2.0.0',
+        }
+
+        entities = getattr(item, 'entities', None)
+        org_text = f"🏢 Organization: {entities.organization}\n" if entities and entities.organization else ""
+        ref_text = f"🏷️ Ref: {entities.reference_number}\n" if entities and entities.reference_number else ""
+        budget_text = f"💰 Budget: {entities.estimated_budget}\n" if entities and entities.estimated_budget else ""
+        deadline_text = f"⏰ Deadline: {entities.deadline_iso or entities.tender_deadline}\n" if entities and (entities.deadline_iso or entities.tender_deadline) else ""
+
+        summary_text = item.ai_analysis.short_summary if hasattr(item, 'ai_analysis') and item.ai_analysis else item.original_content[:800]
+        commentary = (
+            f"📢 {item.title}\n\n"
+            f"{org_text}{ref_text}{budget_text}{deadline_text}\n"
+            f"{summary_text}\n\n"
+            f"🔗 Full Details: {item.canonical_url or 'https://marketintel.org'}"
+        )
+
+        payload = {
+            "author": org_urn,
+            "lifecycleState": "PUBLISHED",
+            "specificContent": {
+                "com.linkedin.ugc.ShareContent": {
+                    "shareCommentary": {"text": commentary[:2900]},
+                    "shareMediaCategory": "NONE"
+                }
+            },
+            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
+        }
+
+        try:
+            resp = requests.post("https://api.linkedin.com/v2/ugcPosts", headers=headers, json=payload, timeout=15)
+            is_success = (resp.status_code == 201)
+            Publication.objects.create(
+                item=item,
+                channel='linkedin',
+                destination=org_urn,
+                status='published' if is_success else 'failed',
+                formatted_payload={'status_code': resp.status_code, 'response': resp.text[:500]}
+            )
+            if is_success:
+                logger.info(f"Published Item #{item.id} to LinkedIn {org_urn}")
+            else:
+                logger.warning(f"LinkedIn publishing failed: {resp.status_code} - {resp.text}")
+            return is_success
+        except Exception as e:
+            logger.error(f"Error publishing Item #{item.id} to LinkedIn: {e}")
+            Publication.objects.create(
+                item=item,
+                channel='linkedin',
+                destination=org_urn,
+                status='failed',
+                formatted_payload={'error': str(e)[:500]}
+            )
+            return False
+
+    @classmethod
+    def publish_to_facebook(cls, item: CollectedItem) -> bool:
+        """
+        Publishes formatted post to authorized Meta Facebook Page feed via Graph API v19+.
+        """
+        from django.conf import settings
+        token = getattr(settings, 'FACEBOOK_PAGE_ACCESS_TOKEN', '')
+        page_id = getattr(settings, 'FACEBOOK_PAGE_ID', '')
+        if not token or not page_id:
+            logger.debug("Facebook publishing skipped: FACEBOOK_PAGE_ACCESS_TOKEN or FACEBOOK_PAGE_ID not configured.")
+            return False
+
+        url = f"https://graph.facebook.com/v19.0/{page_id}/feed"
+
+        entities = getattr(item, 'entities', None)
+        org_text = f"🏢 Organization: {entities.organization}\n" if entities and entities.organization else ""
+        ref_text = f"🏷️ Ref: {entities.reference_number}\n" if entities and entities.reference_number else ""
+        budget_text = f"💰 Budget: {entities.estimated_budget}\n" if entities and entities.estimated_budget else ""
+        deadline_text = f"⏰ Deadline: {entities.deadline_iso or entities.tender_deadline}\n" if entities and (entities.deadline_iso or entities.tender_deadline) else ""
+
+        summary_text = item.ai_analysis.short_summary if hasattr(item, 'ai_analysis') and item.ai_analysis else item.original_content[:1000]
+        message = (
+            f"📢 {item.title}\n\n"
+            f"{org_text}{ref_text}{budget_text}{deadline_text}\n"
+            f"{summary_text}\n\n"
+            f"🔗 Source: {item.canonical_url or 'https://marketintel.org'}"
+        )
+
+        payload = {
+            'message': message[:4000],
+            'access_token': token,
+        }
+        if item.canonical_url and item.canonical_url.startswith('http'):
+            payload['link'] = item.canonical_url
+
+        try:
+            resp = requests.post(url, data=payload, timeout=15)
+            is_success = (resp.status_code == 200)
+            Publication.objects.create(
+                item=item,
+                channel='facebook',
+                destination=page_id,
+                status='published' if is_success else 'failed',
+                formatted_payload={'status_code': resp.status_code, 'response': resp.text[:500]}
+            )
+            if is_success:
+                logger.info(f"Published Item #{item.id} to Facebook Page {page_id}")
+            else:
+                logger.warning(f"Facebook publishing failed: {resp.status_code} - {resp.text}")
+            return is_success
+        except Exception as e:
+            logger.error(f"Error publishing Item #{item.id} to Facebook: {e}")
+            Publication.objects.create(
+                item=item,
+                channel='facebook',
+                destination=page_id,
+                status='failed',
+                formatted_payload={'error': str(e)[:500]}
+            )
+            return False
 
     @classmethod
     def dispatch_webhook(cls, webhook: Webhook, event_type: str, payload: Dict[str, Any]) -> bool:

@@ -50,6 +50,9 @@ class Publication(models.Model):
     """
     CHANNELS = [
         ('webhook', 'Outgoing Webhook'),
+        ('telegram', 'Telegram Push Alert'),
+        ('linkedin', 'LinkedIn Organization Post'),
+        ('facebook', 'Facebook Page Feed'),
         ('api_feed', 'Consumer REST API Feed'),
         ('blog_export', 'Formatted Blog Post'),
         ('csv_export', 'CSV Data Export'),

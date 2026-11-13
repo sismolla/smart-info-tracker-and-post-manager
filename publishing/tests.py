@@ -88,3 +88,49 @@ class PublishingAndAlertTests(TestCase):
                 self.assertEqual(payload['chat_id'], '-10099999')
                 self.assertIn('AAHB/MED/2026/01', payload['text'])
                 self.assertIn('5,000,000 ETB', payload['text'])
+
+    def test_linkedin_publishing_success(self):
+        with override_settings(LINKEDIN_ACCESS_TOKEN="dummy_token_123", LINKEDIN_ORG_URN="urn:li:organization:9847123"):
+            with patch('requests.post') as mock_post:
+                mock_post.return_value = MagicMock(status_code=201, text="Created")
+                success = PublishingManager.publish_to_linkedin(self.item)
+                self.assertTrue(success)
+                self.assertEqual(mock_post.call_count, 1)
+                
+                call_args = mock_post.call_args
+                url = call_args[0][0]
+                json_data = call_args[1]['json']
+                self.assertEqual(url, "https://api.linkedin.com/v2/ugcPosts")
+                self.assertEqual(json_data['author'], "urn:li:organization:9847123")
+                
+                # Verify Publication record
+                pub = Publication.objects.filter(item=self.item, channel='linkedin').first()
+                self.assertIsNotNone(pub)
+                self.assertEqual(pub.status, 'published')
+
+    def test_facebook_publishing_success(self):
+        with override_settings(FACEBOOK_PAGE_ACCESS_TOKEN="fb_token_abc", FACEBOOK_PAGE_ID="123456789012345"):
+            with patch('requests.post') as mock_post:
+                mock_post.return_value = MagicMock(status_code=200, text="OK")
+                success = PublishingManager.publish_to_facebook(self.item)
+                self.assertTrue(success)
+                self.assertEqual(mock_post.call_count, 1)
+                
+                call_args = mock_post.call_args
+                url = call_args[0][0]
+                data = call_args[1]['data']
+                self.assertIn("123456789012345/feed", url)
+                self.assertEqual(data['access_token'], "fb_token_abc")
+                self.assertIn(self.item.title, data['message'])
+                
+                # Verify Publication record
+                pub = Publication.objects.filter(item=self.item, channel='facebook').first()
+                self.assertIsNotNone(pub)
+                self.assertEqual(pub.status, 'published')
+
+    def test_publishing_missing_credentials_fails_gracefully(self):
+        with override_settings(LINKEDIN_ACCESS_TOKEN="", LINKEDIN_ORG_URN="", FACEBOOK_PAGE_ACCESS_TOKEN="", FACEBOOK_PAGE_ID=""):
+            li_res = PublishingManager.publish_to_linkedin(self.item)
+            fb_res = PublishingManager.publish_to_facebook(self.item)
+            self.assertFalse(li_res)
+            self.assertFalse(fb_res)

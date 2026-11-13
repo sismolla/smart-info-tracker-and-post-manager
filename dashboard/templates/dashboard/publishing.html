@@ -70,6 +70,110 @@
     </div>
   </div>
 
+  <!-- Meta Facebook Page Publishing Engine -->
+  <div class="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-5">
+    <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
+      <div>
+        <div class="flex items-center gap-2">
+          <h2 class="text-base font-bold text-slate-900">🌐 Meta Facebook Page Publishing Engine</h2>
+          {% if has_facebook_token and facebook_page_id %}
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            Active & Connected
+          </span>
+          {% else %}
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+            Setup Required (.env)
+          </span>
+          {% endif %}
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Publishes approved market intelligence and business opportunities directly to your authorized Facebook Page feed via Graph API v19+.</p>
+      </div>
+      
+      <form method="POST" class="inline">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="test_facebook_post">
+        <button type="submit" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition inline-flex items-center gap-1.5">
+          <span>⚡</span> Send Test Post
+        </button>
+      </form>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">Page Access Token</span>
+        <div class="text-sm font-bold mt-1.5 {% if has_facebook_token %}text-emerald-700{% else %}text-amber-700{% endif %}">
+          {% if has_facebook_token %}✓ Configured (FACEBOOK_PAGE_ACCESS_TOKEN){% else %}Missing in .env{% endif %}
+        </div>
+      </div>
+
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">Target Facebook Page ID</span>
+        <div class="text-sm font-bold font-mono text-slate-900 mt-1.5 truncate" title="{{ facebook_page_id }}">
+          {{ facebook_page_id|default:"Not Configured (FACEBOOK_PAGE_ID)" }}
+        </div>
+      </div>
+
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">API Version & Permissions</span>
+        <div class="text-sm font-bold font-mono text-slate-800 mt-1.5">
+          Graph API v19+ (pages_manage_posts)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LinkedIn Organization Publishing Engine -->
+  <div class="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-5">
+    <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
+      <div>
+        <div class="flex items-center gap-2">
+          <h2 class="text-base font-bold text-slate-900">💼 LinkedIn Organization Publishing Engine</h2>
+          {% if has_linkedin_token and linkedin_org_urn %}
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            Active & Connected
+          </span>
+          {% else %}
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+            Setup Required (.env)
+          </span>
+          {% endif %}
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Publishes professional announcements and executive briefings to your LinkedIn Company Page via UGC Posts API v2.</p>
+      </div>
+      
+      <form method="POST" class="inline">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="test_linkedin_post">
+        <button type="submit" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition inline-flex items-center gap-1.5">
+          <span>⚡</span> Send Test Post
+        </button>
+      </form>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">OAuth 2.0 Access Token</span>
+        <div class="text-sm font-bold mt-1.5 {% if has_linkedin_token %}text-emerald-700{% else %}text-amber-700{% endif %}">
+          {% if has_linkedin_token %}✓ Configured (LINKEDIN_ACCESS_TOKEN){% else %}Missing in .env{% endif %}
+        </div>
+      </div>
+
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">Target Organization URN</span>
+        <div class="text-sm font-bold font-mono text-slate-900 mt-1.5 truncate" title="{{ linkedin_org_urn }}">
+          {{ linkedin_org_urn|default:"Not Configured (LINKEDIN_ORG_URN)" }}
+        </div>
+      </div>
+
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">OAuth Scope Required</span>
+        <div class="text-sm font-bold font-mono text-slate-800 mt-1.5">
+          w_organization_social (UGC Posts)
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Published Feed (2 Cols) -->
     <div class="lg:col-span-2 rounded-2xl border border-slate-200/90 bg-white p-6 shadow-xs">
