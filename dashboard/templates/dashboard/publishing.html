@@ -4,62 +4,66 @@
 
 {% block content %}
 <div class="space-y-6">
-  <div class="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
+  <!-- Page Header -->
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2">
     <div>
-      <h2 class="text-lg font-bold text-white">Publishing Pipeline & Webhook Syndication</h2>
-      <p class="text-xs text-slate-400">Manage real-time external distribution to partner applications and CRMs</p>
+      <h1 class="text-2xl font-bold tracking-tight text-slate-900">Publishing Pipeline & Syndication</h1>
+      <p class="text-xs text-slate-500 mt-1">Manage outbound Telegram alerts, external CRM webhooks, and multi-channel distribution</p>
     </div>
-    <button onclick="document.getElementById('add-webhook-modal').classList.remove('hidden')" class="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow">
-      + Register Webhook
-    </button>
+    <div>
+      <button onclick="document.getElementById('add-webhook-modal').classList.remove('hidden')" class="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition inline-flex items-center gap-1.5">
+        <span>+</span>
+        <span>Register Webhook</span>
+      </button>
+    </div>
   </div>
 
   <!-- Telegram Push Alert Bot Configuration -->
-  <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
-    <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+  <div class="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-5">
+    <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
       <div>
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
-          <span>📢 Outbound Telegram Push Alert Engine</span>
+        <div class="flex items-center gap-2">
+          <h2 class="text-base font-bold text-slate-900">📢 Outbound Telegram Push Alert Engine</h2>
           {% if has_bot_token and alert_chat_id %}
-          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
             Active & Broadcasting
           </span>
           {% else %}
-          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
             Setup Required (.env)
           </span>
           {% endif %}
-        </h3>
-        <p class="text-xs text-slate-400 mt-0.5">Automatically pushes high-priority intelligence (tenders, contracts, executive alerts) to your management Telegram channel or group.</p>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Automatically broadcasts high-priority intelligence (tenders, contracts, executive alerts) to your management Telegram channel or group.</p>
       </div>
       
       <form method="POST" class="inline">
         {% csrf_token %}
         <input type="hidden" name="action" value="test_telegram_alert">
-        <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow transition flex items-center gap-1.5">
+        <button type="submit" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition inline-flex items-center gap-1.5">
           <span>⚡</span> Send Test Alert
         </button>
       </form>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-      <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
-        <span class="text-[11px] text-slate-400">Bot Token Status</span>
-        <div class="text-sm font-bold mt-1 {% if has_bot_token %}text-emerald-400{% else %}text-amber-400{% endif %}">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">Bot Token Status</span>
+        <div class="text-sm font-bold mt-1.5 {% if has_bot_token %}text-emerald-700{% else %}text-amber-700{% endif %}">
           {% if has_bot_token %}✓ Configured (TELEGRAM_BOT_TOKEN){% else %}Missing in .env{% endif %}
         </div>
       </div>
 
-      <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
-        <span class="text-[11px] text-slate-400">Target Chat / Channel ID</span>
-        <div class="text-sm font-bold font-mono text-white mt-1">
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">Target Chat / Channel ID</span>
+        <div class="text-sm font-bold font-mono text-slate-900 mt-1.5 truncate" title="{{ alert_chat_id }}">
           {{ alert_chat_id|default:"Not Configured (TELEGRAM_ALERT_CHAT_ID)" }}
         </div>
       </div>
 
-      <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
-        <span class="text-[11px] text-slate-400">Relevance Filter Threshold</span>
-        <div class="text-sm font-bold font-mono text-emerald-400 mt-1">
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">Relevance Filter Threshold</span>
+        <div class="text-sm font-bold font-mono text-emerald-700 mt-1.5">
           &ge; {{ alert_min_score }}% Relevance Score
         </div>
       </div>
@@ -68,40 +72,54 @@
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Published Feed (2 Cols) -->
-    <div class="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-      <h3 class="text-sm font-bold text-white mb-3">Recent Publications</h3>
-      <div class="divide-y divide-slate-800 text-xs">
+    <div class="lg:col-span-2 rounded-2xl border border-slate-200/90 bg-white p-6 shadow-xs">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h2 class="text-sm font-bold text-slate-900">Recent Publications & Dispatches</h2>
+        <span class="text-xs text-slate-400">Outbound History</span>
+      </div>
+      <div class="divide-y divide-slate-100 text-xs mt-2">
         {% for pub in publications %}
-        <div class="py-3 flex items-center justify-between gap-4">
-          <div>
-            <span class="font-semibold text-slate-200 block">{{ pub.item.title }}</span>
-            <span class="text-[10px] text-slate-400">Via {{ pub.get_channel_display }} &bull; {{ pub.published_at|timesince }} ago</span>
+        <div class="py-3.5 flex items-center justify-between gap-4">
+          <div class="min-w-0 flex-1">
+            <span class="font-semibold text-slate-900 block truncate">{{ pub.item.title }}</span>
+            <span class="text-[11px] text-slate-500 mt-0.5 block">Via {{ pub.get_channel_display }} &bull; {{ pub.published_at|timesince }} ago</span>
           </div>
-          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-400">
+          <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200 flex-shrink-0">
             {{ pub.status|upper }}
           </span>
         </div>
         {% empty %}
-        <p class="text-slate-500 py-6 text-center">No publications dispatched yet.</p>
+        <div class="py-12 text-center text-slate-500">
+          <p class="text-sm font-semibold text-slate-700">No publications dispatched yet.</p>
+          <p class="mt-1 text-xs">Approved intelligence will appear here once published to Telegram or webhooks.</p>
+        </div>
         {% endfor %}
       </div>
     </div>
 
     <!-- Active Webhooks (1 Col) -->
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
-      <h3 class="text-sm font-bold text-white">Subscribed Webhooks</h3>
-      <div class="space-y-2 text-xs">
+    <div class="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h2 class="text-sm font-bold text-slate-900">Subscribed Webhooks</h2>
+        <span class="text-xs text-slate-400">Endpoints</span>
+      </div>
+      <div class="space-y-3 text-xs">
         {% for wh in webhooks %}
-        <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
+        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
           <div class="flex items-center justify-between">
-            <span class="font-bold text-white">{{ wh.name }}</span>
-            <span class="w-2 h-2 rounded-full {% if wh.is_active %}bg-emerald-400{% else %}bg-slate-500{% endif %}"></span>
+            <span class="font-bold text-slate-900">{{ wh.name }}</span>
+            <span class="w-2.5 h-2.5 rounded-full {% if wh.is_active %}bg-emerald-500{% else %}bg-slate-400{% endif %}"></span>
           </div>
-          <div class="text-[11px] font-mono text-slate-400 truncate mt-1">{{ wh.target_url }}</div>
-          <div class="text-[10px] text-slate-500 mt-1">HMAC SHA256 Signature Enabled</div>
+          <div class="text-[11px] font-mono text-slate-600 truncate mt-1.5" title="{{ wh.target_url }}">{{ wh.target_url }}</div>
+          <div class="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
+            <span>🔒</span> HMAC SHA256 Signature Enabled
+          </div>
         </div>
         {% empty %}
-        <p class="text-slate-500 py-4 text-center">No active webhooks configured.</p>
+        <div class="py-8 text-center text-slate-500">
+          <p class="text-xs font-medium text-slate-600">No active webhooks configured.</p>
+          <p class="mt-1 text-[11px]">Click "Register Webhook" above to integrate third-party systems.</p>
+        </div>
         {% endfor %}
       </div>
     </div>
@@ -109,31 +127,31 @@
 </div>
 
 <!-- Webhook Modal -->
-<div id="add-webhook-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
-    <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-      <h3 class="text-sm font-bold text-white">Register Outgoing Webhook</h3>
-      <button onclick="document.getElementById('add-webhook-modal').classList.add('hidden')" class="text-slate-400 hover:text-white">&times;</button>
+<div id="add-webhook-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-xl space-y-4">
+    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+      <h2 class="text-sm font-bold text-slate-900">Register Outgoing Webhook</h2>
+      <button onclick="document.getElementById('add-webhook-modal').classList.add('hidden')" class="text-slate-400 hover:text-slate-700 text-lg leading-none">&times;</button>
     </div>
     
-    <form method="POST" class="space-y-3 text-xs">
+    <form method="POST" class="space-y-3.5 text-xs">
       {% csrf_token %}
       <input type="hidden" name="action" value="add_webhook">
       <div>
-        <label class="block text-slate-300 font-medium mb-1">Subscriber / App Name</label>
-        <input type="text" name="name" required placeholder="e.g. CRM Integration or Telegram Publisher" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white">
+        <label class="block text-slate-700 font-medium mb-1">Subscriber / App Name</label>
+        <input type="text" name="name" required placeholder="e.g. CRM Integration or Telegram Publisher" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
       </div>
       <div>
-        <label class="block text-slate-300 font-medium mb-1">Target Webhook URL</label>
-        <input type="url" name="target_url" required placeholder="https://api.yourdomain.com/webhooks/market-intel" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white font-mono">
+        <label class="block text-slate-700 font-medium mb-1">Target Webhook URL</label>
+        <input type="url" name="target_url" required placeholder="https://api.yourdomain.com/webhooks/market-intel" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-mono focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
       </div>
       <div>
-        <label class="block text-slate-300 font-medium mb-1">Secret Key (for HMAC Signature)</label>
-        <input type="text" name="secret_token" placeholder="Optional secret for X-Hub-Signature-256 verification" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white font-mono">
+        <label class="block text-slate-700 font-medium mb-1">Secret Key (for HMAC Signature)</label>
+        <input type="text" name="secret_token" placeholder="Optional secret for X-Hub-Signature-256 verification" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-mono focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
       </div>
-      <div class="flex justify-end gap-2 pt-3 border-t border-slate-800">
-        <button type="button" onclick="document.getElementById('add-webhook-modal').classList.add('hidden')" class="px-3 py-1.5 rounded border border-slate-700 bg-slate-800 text-slate-300">Cancel</button>
-        <button type="submit" class="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold">Save Webhook</button>
+      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
+        <button type="button" onclick="document.getElementById('add-webhook-modal').classList.add('hidden')" class="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 font-medium shadow-2xs transition">Cancel</button>
+        <button type="submit" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs transition">Save Webhook</button>
       </div>
     </form>
   </div>

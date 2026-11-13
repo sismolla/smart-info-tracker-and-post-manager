@@ -3,87 +3,95 @@
 {% block title %}AI Intelligence Engine - Market Intelligence{% endblock %}
 
 {% block content %}
-<div class="space-y-6 max-w-4xl mx-auto">
-  <div class="pb-4 border-b border-slate-800">
-    <h2 class="text-lg font-bold text-white">AI Engine Configuration & Metrics</h2>
-    <p class="text-xs text-slate-400">Google Gemini API integration, prompt tuning, and token cost controls</p>
+<div class="space-y-6 max-w-5xl mx-auto">
+  <!-- Page Header -->
+  <div class="pb-2">
+    <h1 class="text-2xl font-bold tracking-tight text-slate-900">AI Engine Configuration & Metrics</h1>
+    <p class="text-xs text-slate-500 mt-1">Google Gemini API integration, prompt tuning, semantic classification, and token spend controls</p>
   </div>
 
+  <!-- Top 3 Stat Cards -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-    <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
-      <span class="text-xs text-slate-400">AI Provider</span>
-      <div class="mt-1 flex items-center gap-2">
-        <span class="text-lg font-bold text-white">Google Gemini</span>
-        <span class="w-2 h-2 rounded-full {% if has_gemini_key %}bg-emerald-400{% else %}bg-amber-400{% endif %}"></span>
+    <div class="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">AI Provider</span>
+      <div class="mt-2 flex items-center gap-2">
+        <span class="text-xl font-bold text-slate-900">Google Gemini</span>
+        <span class="w-2.5 h-2.5 rounded-full {% if has_gemini_key %}bg-emerald-500 animate-pulse{% else %}bg-amber-400{% endif %}"></span>
       </div>
-      <p class="text-[11px] text-slate-500 mt-1">{% if has_gemini_key %}API Key Active{% else %}Rule-based Heuristic Fallback Active{% endif %}</p>
+      <p class="text-xs text-slate-500 mt-1">
+        {% if has_gemini_key %}
+        <span class="text-emerald-700 font-medium">✓ API Key Active</span>
+        {% else %}
+        <span class="text-amber-700 font-medium">⚠️ Rule-based Heuristic Fallback</span>
+        {% endif %}
+      </p>
     </div>
 
-    <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
-      <span class="text-xs text-slate-400">Active Model</span>
-      <div class="text-lg font-bold text-white font-mono mt-1">{{ model_name }}</div>
-      <p class="text-[11px] text-slate-500 mt-1">Structured JSON schema output</p>
+    <div class="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Model</span>
+      <div class="text-xl font-bold text-slate-900 font-mono mt-2">{{ model_name }}</div>
+      <p class="text-xs text-slate-500 mt-1">Structured JSON schema output</p>
     </div>
 
-    <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
-      <span class="text-xs text-slate-400">Analyzed Items</span>
-      <div class="text-lg font-bold text-white font-mono mt-1">{{ analyzed_count }}</div>
-      <p class="text-[11px] text-slate-500 mt-1">Avg relevance: {{ avg_score }}/100</p>
+    <div class="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Analyzed Items</span>
+      <div class="text-xl font-bold text-slate-900 font-mono mt-2">{{ analyzed_count }}</div>
+      <p class="text-xs text-slate-500 mt-1">Average relevance: <strong class="text-slate-800 font-semibold">{{ avg_score }}/100</strong></p>
     </div>
   </div>
 
   <!-- Financial Spend & Circuit Breaker Protection -->
-  <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
-    <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+  <div class="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-5">
+    <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
       <div>
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
-          <span>🛡️ Daily AI Spend Controls & Circuit Breaker</span>
+        <div class="flex items-center gap-2">
+          <h2 class="text-base font-bold text-slate-900">🛡️ Daily AI Spend Controls & Circuit Breaker</h2>
           {% if today_tracker.is_circuit_breaker_tripped %}
-          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">
             Circuit Breaker Tripped (Safe Fallback Active)
           </span>
           {% else %}
-          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
             Circuit Breaker Active (Protected)
           </span>
           {% endif %}
-        </h3>
-        <p class="text-xs text-slate-400 mt-0.5">Prevents runaway Gemini API billing by halting LLM calls and reverting to semantic heuristics upon reaching daily spend caps.</p>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Prevents runaway Gemini API billing by halting LLM calls and reverting to deterministic heuristics upon reaching daily spend caps.</p>
       </div>
       <div class="text-right">
-        <span class="text-xs text-slate-400 block">Daily Spend Cap</span>
-        <span class="text-sm font-bold font-mono text-emerald-400">${{ spend_limit|floatformat:2 }} USD/day</span>
+        <span class="text-xs text-slate-400 block font-medium">Daily Spend Cap</span>
+        <span class="text-base font-bold font-mono text-emerald-700">${{ spend_limit|floatformat:2 }} USD/day</span>
       </div>
     </div>
 
     <!-- Usage Gauges -->
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
-        <span class="text-[11px] text-slate-400">Today's API Calls</span>
-        <div class="text-base font-bold font-mono text-white mt-1">
-          {{ today_tracker.total_calls|default:0 }} <span class="text-xs font-normal text-slate-400">/ {{ max_calls }} max</span>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">Today's API Calls</span>
+        <div class="text-lg font-bold font-mono text-slate-900 mt-1.5">
+          {{ today_tracker.total_calls|default:0 }} <span class="text-xs font-normal text-slate-500">/ {{ max_calls }} max</span>
         </div>
-        <div class="w-full bg-slate-700/50 h-1.5 rounded-full mt-2 overflow-hidden">
-          <div class="bg-blue-500 h-full rounded-full" style="width: {% widthratio today_tracker.total_calls|default:0 max_calls 100 %}%;"></div>
+        <div class="w-full bg-slate-200 h-2 rounded-full mt-2.5 overflow-hidden">
+          <div class="bg-blue-600 h-full rounded-full transition-all" style="width: {% widthratio today_tracker.total_calls|default:0 max_calls 100 %}%;"></div>
         </div>
       </div>
 
-      <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
-        <span class="text-[11px] text-slate-400">Today's Token Volume</span>
-        <div class="text-base font-bold font-mono text-white mt-1">
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">Today's Token Volume</span>
+        <div class="text-lg font-bold font-mono text-slate-900 mt-1.5">
           {{ today_tracker.total_input_tokens|default:0|add:today_tracker.total_output_tokens|default:0 }}
         </div>
-        <div class="text-[10px] text-slate-500 mt-1">
+        <div class="text-[11px] text-slate-500 mt-2 font-mono">
           In: {{ today_tracker.total_input_tokens|default:0 }} &bull; Out: {{ today_tracker.total_output_tokens|default:0 }}
         </div>
       </div>
 
-      <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
-        <span class="text-[11px] text-slate-400">Estimated Today's Cost</span>
-        <div class="text-base font-bold font-mono {% if today_tracker.is_circuit_breaker_tripped %}text-rose-400{% else %}text-emerald-400{% endif %} mt-1">
+      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+        <span class="text-[11px] font-semibold text-slate-500 uppercase">Estimated Today's Cost</span>
+        <div class="text-lg font-bold font-mono {% if today_tracker.is_circuit_breaker_tripped %}text-rose-600{% else %}text-emerald-700{% endif %} mt-1.5">
           ${{ today_tracker.estimated_cost_usd|default:"0.0000" }}
         </div>
-        <div class="text-[10px] text-slate-500 mt-1">
+        <div class="text-[11px] text-slate-500 mt-2">
           Cap: ${{ spend_limit|floatformat:2 }} (Gemini 1.5/2.0 Flash)
         </div>
       </div>
@@ -91,18 +99,21 @@
   </div>
 
   <!-- Prompt & Taxonomy Details -->
-  <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-4">
-    <h3 class="text-sm font-bold text-white">Configured Classification Taxonomies</h3>
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">🏥 Healthcare News</div>
-      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">💊 Pharmaceutical Info</div>
-      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">🔬 Medical Equipment</div>
-      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">📑 Tenders & Procurement</div>
-      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">💼 Job Opportunities</div>
-      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">🚀 Product Announcements</div>
-      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">📈 Market Trends</div>
-      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">🤝 Business Opportunities</div>
-      <div class="p-2.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-200">🏛️ Government Announcements</div>
+  <div class="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-4">
+    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+      <h2 class="text-sm font-bold text-slate-900">Configured Classification Taxonomies</h2>
+      <span class="text-xs text-slate-400">9 Core Domains</span>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+      <div class="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200/70 text-slate-800 font-medium transition-colors">🏥 Healthcare News</div>
+      <div class="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200/70 text-slate-800 font-medium transition-colors">💊 Pharmaceutical Info</div>
+      <div class="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200/70 text-slate-800 font-medium transition-colors">🔬 Medical Equipment</div>
+      <div class="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200/70 text-slate-800 font-medium transition-colors">📑 Tenders & Procurement</div>
+      <div class="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200/70 text-slate-800 font-medium transition-colors">💼 Job Opportunities</div>
+      <div class="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200/70 text-slate-800 font-medium transition-colors">🚀 Product Announcements</div>
+      <div class="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200/70 text-slate-800 font-medium transition-colors">📈 Market Trends</div>
+      <div class="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200/70 text-slate-800 font-medium transition-colors">🤝 Business Opportunities</div>
+      <div class="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200/70 text-slate-800 font-medium transition-colors">🏛️ Government Announcements</div>
     </div>
   </div>
 </div>

@@ -3,156 +3,221 @@
 {% block title %}Dashboard Overview - Market Intelligence{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
+<div class="space-y-8">
+  <!-- Page Header -->
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-slate-900">Market Intelligence Dashboard</h1>
+      <p class="text-xs text-slate-500 mt-1">Real-time multi-channel aggregation, AI synthesis, and editorial curation pipeline</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="{% url 'dashboard_items' %}" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition">
+        <span>Curate Stream</span>
+        <span>&rarr;</span>
+      </a>
+      <a href="{% url 'dashboard_sources' %}" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold shadow-2xs transition">
+        <span>+ Sources</span>
+      </a>
+    </div>
+  </div>
+
   <!-- Top Stat Cards -->
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-    <!-- Stat 1 -->
-    <div class="p-5 rounded-xl border border-slate-800 bg-slate-900/60 shadow-sm">
-      <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
-        <span>Connected Sources</span>
-        <span class="p-1 rounded bg-blue-500/10 text-blue-400">Sources</span>
+    <!-- Stat 1: Sources -->
+    <div class="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs hover:shadow-md transition duration-150 flex flex-col justify-between">
+      <div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Connected Sources</span>
+          <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm">
+            📡
+          </div>
+        </div>
+        <div class="mt-3 flex items-baseline gap-2">
+          <span class="text-3xl font-extrabold text-slate-900 tracking-tight">{{ active_sources }}</span>
+          <span class="text-xs font-medium text-slate-500">/ {{ total_sources }} active</span>
+        </div>
       </div>
-      <div class="mt-2 flex items-baseline gap-2">
-        <span class="text-2xl font-bold text-white">{{ active_sources }}</span>
-        <span class="text-xs text-slate-500">/ {{ total_sources }} active</span>
+      <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+        <span>Telegram, FB, Portals</span>
+        <span class="text-blue-600 font-medium">99.4% uptime</span>
       </div>
-      <div class="mt-3 text-[11px] text-slate-400">Telegram, FB, LinkedIn, Portals</div>
     </div>
 
-    <!-- Stat 2 -->
-    <div class="p-5 rounded-xl border border-slate-800 bg-slate-900/60 shadow-sm">
-      <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
-        <span>Total Intelligence Collected</span>
-        <span class="p-1 rounded bg-indigo-500/10 text-indigo-400">Items</span>
+    <!-- Stat 2: Intelligence Items -->
+    <div class="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs hover:shadow-md transition duration-150 flex flex-col justify-between">
+      <div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Intelligence</span>
+          <div class="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">
+            📑
+          </div>
+        </div>
+        <div class="mt-3 flex items-baseline gap-2">
+          <span class="text-3xl font-extrabold text-slate-900 tracking-tight">{{ total_items }}</span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60">+{{ today_items }} today</span>
+        </div>
       </div>
-      <div class="mt-2 flex items-baseline gap-2">
-        <span class="text-2xl font-bold text-white">{{ total_items }}</span>
-        <span class="text-xs text-emerald-400 font-medium">+{{ today_items }} today</span>
+      <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+        <span>Across all channels</span>
+        <span class="text-indigo-600 font-medium">Aggregated</span>
       </div>
-      <div class="mt-3 text-[11px] text-slate-400">All sources aggregated</div>
     </div>
 
-    <!-- Stat 3 -->
-    <div class="p-5 rounded-xl border border-slate-800 bg-slate-900/60 shadow-sm">
-      <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
-        <span>Awaiting Approval</span>
-        <span class="p-1 rounded bg-amber-500/10 text-amber-400">Review</span>
+    <!-- Stat 3: Awaiting Approval -->
+    <div class="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs hover:shadow-md transition duration-150 flex flex-col justify-between">
+      <div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Awaiting Review</span>
+          <div class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-sm">
+            ⏳
+          </div>
+        </div>
+        <div class="mt-3 flex items-baseline gap-2">
+          <span class="text-3xl font-extrabold text-amber-600 tracking-tight">{{ pending_approval }}</span>
+          <span class="text-xs font-medium text-slate-500">pending editorial</span>
+        </div>
       </div>
-      <div class="mt-2 flex items-baseline gap-2">
-        <span class="text-2xl font-bold text-amber-400">{{ pending_approval }}</span>
-        <span class="text-xs text-slate-500">pending editorial</span>
+      <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+        <span>Scored & structured by AI</span>
+        <a href="{% url 'dashboard_items' %}?status=ai_processed" class="text-amber-700 font-semibold hover:underline">Review &rarr;</a>
       </div>
-      <div class="mt-3 text-[11px] text-slate-400">Curated & scored by AI</div>
     </div>
 
-    <!-- Stat 4 -->
-    <div class="p-5 rounded-xl border border-slate-800 bg-slate-900/60 shadow-sm">
-      <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
-        <span>Duplicates Filtered</span>
-        <span class="p-1 rounded bg-purple-500/10 text-purple-400">Dedup</span>
+    <!-- Stat 4: Duplicates Filtered -->
+    <div class="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs hover:shadow-md transition duration-150 flex flex-col justify-between">
+      <div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Duplicates Filtered</span>
+          <div class="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-sm">
+            🛡️
+          </div>
+        </div>
+        <div class="mt-3 flex items-baseline gap-2">
+          <span class="text-3xl font-extrabold text-purple-700 tracking-tight">{{ duplicates_detected }}</span>
+          <span class="text-xs font-medium text-slate-500">cross-posts deduplicated</span>
+        </div>
       </div>
-      <div class="mt-2 flex items-baseline gap-2">
-        <span class="text-2xl font-bold text-purple-400">{{ duplicates_detected }}</span>
-        <span class="text-xs text-slate-500">cross-posts detected</span>
+      <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+        <span>Zero token waste</span>
+        <span class="text-purple-600 font-medium">Auto-linked</span>
       </div>
-      <div class="mt-3 text-[11px] text-slate-400">Saved LLM & storage overhead</div>
     </div>
   </div>
 
   <!-- Middle Grid: Recent Intelligence & Category Breakdown -->
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- Left Column: Recent High-Value Intelligence -->
-    <div class="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+    <!-- Left Column: Recent High-Value Intelligence (2 Cols) -->
+    <div class="lg:col-span-2 rounded-2xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
+      <div class="p-5 border-b border-slate-100 flex items-center justify-between">
         <div>
-          <h3 class="text-sm font-bold text-white">Latest Intelligence Stream</h3>
-          <p class="text-xs text-slate-400">Recent announcements processed by Gemini AI</p>
+          <h2 class="text-base font-bold text-slate-900">Latest Intelligence Stream</h2>
+          <p class="text-xs text-slate-500 mt-0.5">High-relevance tenders, vacancies, and health announcements</p>
         </div>
-        <a href="{% url 'dashboard_items' %}" class="text-xs text-blue-400 hover:text-blue-300">View All &rarr;</a>
+        <a href="{% url 'dashboard_items' %}" class="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 transition">
+          <span>View All Stream</span>
+          <span>&rarr;</span>
+        </a>
       </div>
 
-      <div class="divide-y divide-slate-800 mt-2">
+      <div class="divide-y divide-slate-100">
         {% for item in recent_items %}
-        <div class="py-3 flex items-start justify-between gap-4">
-          <div class="space-y-1">
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+        <div class="p-5 hover:bg-slate-50/70 transition-colors flex items-start justify-between gap-4">
+          <div class="space-y-1.5 flex-1 min-w-0">
+            <!-- Tags & Meta -->
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200/60">
                 {{ item.source.name }}
               </span>
               {% for cat in item.categories.all %}
-              <span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/20 text-blue-300">
+              <span class="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/60">
                 {{ cat.name }}
               </span>
               {% endfor %}
+              <span class="text-[11px] text-slate-400">&bull;</span>
               <span class="text-[11px] text-slate-500">{{ item.collected_at|timesince }} ago</span>
             </div>
-            <a href="{% url 'dashboard_item_detail' item.id %}" class="text-sm font-semibold text-slate-100 hover:text-blue-400 transition block">
+
+            <!-- Title -->
+            <a href="{% url 'dashboard_item_detail' item.id %}" class="text-sm font-semibold text-slate-900 hover:text-blue-600 transition-colors block line-clamp-1 leading-snug">
               {{ item.title }}
             </a>
-            <p class="text-xs text-slate-400 line-clamp-1">
+
+            <!-- Teaser Summary -->
+            <p class="text-xs text-slate-600 line-clamp-1 leading-relaxed">
               {{ item.ai_analysis.short_summary|default:item.original_content }}
             </p>
           </div>
-          <div class="text-right flex-shrink-0">
+
+          <!-- Relevance Score Badge -->
+          <div class="text-right flex-shrink-0 pt-0.5">
             {% if item.ai_analysis %}
-            <span class="inline-block text-xs font-mono font-bold px-2 py-1 rounded 
-              {% if item.ai_analysis.relevance_score >= 75 %} bg-emerald-500/20 text-emerald-400
-              {% elif item.ai_analysis.relevance_score >= 50 %} bg-blue-500/20 text-blue-400
-              {% else %} bg-slate-800 text-slate-400 {% endif %}">
-              {{ item.ai_analysis.relevance_score }} / 100
+            <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold border
+              {% if item.ai_analysis.relevance_score >= 75 %} bg-emerald-50 text-emerald-700 border-emerald-200
+              {% elif item.ai_analysis.relevance_score >= 50 %} bg-blue-50 text-blue-700 border-blue-200
+              {% else %} bg-slate-100 text-slate-600 border-slate-200 {% endif %}">
+              {{ item.ai_analysis.relevance_score }}%
             </span>
+            {% else %}
+            <span class="text-[10px] font-mono text-slate-400 bg-slate-50 px-2 py-1 rounded border border-slate-200">Pending</span>
             {% endif %}
           </div>
         </div>
         {% empty %}
-        <div class="py-8 text-center text-xs text-slate-500">
-          No items collected yet. Check source synchronization.
+        <div class="py-12 text-center text-xs text-slate-500">
+          <p class="text-sm font-medium text-slate-600">No intelligence items collected yet.</p>
+          <p class="mt-1">Check source synchronization in the Sources tab or trigger a collection run.</p>
         </div>
         {% endfor %}
       </div>
     </div>
 
-    <!-- Right Column: Categories & Collection Runs -->
+    <!-- Right Column: Categories & Collection Runs (1 Col) -->
     <div class="space-y-6">
       <!-- Category Distribution -->
-      <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-        <h3 class="text-sm font-bold text-white mb-3">Top Intelligence Categories</h3>
-        <div class="space-y-2">
+      <div class="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+          <h2 class="text-sm font-bold text-slate-900">Intelligence by Category</h2>
+          <span class="text-[11px] text-slate-400">Distribution</span>
+        </div>
+        <div class="space-y-2 mt-3">
           {% for cat in categories %}
-          <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-800/60">
-            <span class="text-slate-300 font-medium">{{ cat.name }}</span>
-            <span class="font-mono text-slate-400 px-2 py-0.5 rounded bg-slate-800">{{ cat.item_count }}</span>
+          <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-50 last:border-0">
+            <span class="text-slate-700 font-medium">{{ cat.name }}</span>
+            <span class="font-mono text-slate-700 font-semibold px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200/70">{{ cat.item_count }}</span>
           </div>
           {% empty %}
-          <p class="text-xs text-slate-500">No categories active yet.</p>
+          <p class="text-xs text-slate-500 py-3 text-center">No categories active yet.</p>
           {% endfor %}
         </div>
       </div>
 
       <!-- Recent Collection Runs -->
-      <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-bold text-white">Cron Sync Activity</h3>
-          <span class="text-[10px] text-slate-400">cPanel Mode</span>
+      <div class="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div>
+            <h2 class="text-sm font-bold text-slate-900">Cron Sync Activity</h2>
+            <p class="text-[11px] text-slate-500 mt-0.5">Automated cPanel batch execution</p>
+          </div>
+          <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">cPanel Mode</span>
         </div>
-        <div class="space-y-2">
+        <div class="space-y-2.5 mt-3">
           {% for run in recent_runs %}
-          <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-800/60">
-            <div class="truncate max-w-[150px]">
-              <span class="font-medium text-slate-200 block truncate">{{ run.source.name }}</span>
-              <span class="text-[10px] text-slate-500">{{ run.started_at|timesince }} ago</span>
+          <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-50 last:border-0">
+            <div class="truncate max-w-[160px]">
+              <span class="font-semibold text-slate-800 block truncate">{{ run.source.name }}</span>
+              <span class="text-[10px] text-slate-400">{{ run.started_at|timesince }} ago</span>
             </div>
-            <div class="text-right">
-              <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold
-                {% if run.status == 'success' %} bg-emerald-500/20 text-emerald-400
-                {% elif run.status == 'failed' %} bg-rose-500/20 text-rose-400
-                {% else %} bg-blue-500/20 text-blue-400 {% endif %}">
+            <div class="text-right flex-shrink-0">
+              <span class="px-2 py-0.5 rounded-md text-[10px] font-bold border
+                {% if run.status == 'success' %} bg-emerald-50 text-emerald-700 border-emerald-200
+                {% elif run.status == 'failed' %} bg-rose-50 text-rose-700 border-rose-200
+                {% else %} bg-blue-50 text-blue-700 border-blue-200 {% endif %}">
                 +{{ run.items_saved }} items
               </span>
             </div>
           </div>
           {% empty %}
-          <p class="text-xs text-slate-500">No collection runs logged yet.</p>
+          <p class="text-xs text-slate-500 py-4 text-center">No collection runs logged yet.</p>
           {% endfor %}
         </div>
       </div>

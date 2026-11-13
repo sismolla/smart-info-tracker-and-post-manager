@@ -5,108 +5,112 @@
 {% block content %}
 <div class="space-y-6">
   <!-- Header & Add Source Button -->
-  <div class="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2">
     <div>
-      <h2 class="text-lg font-bold text-white">Configured Information Sources</h2>
-      <p class="text-xs text-slate-400">Manage and monitor Telegram, Facebook, LinkedIn, Portals, and RSS feeds</p>
+      <h1 class="text-2xl font-bold tracking-tight text-slate-900">Configured Information Sources</h1>
+      <p class="text-xs text-slate-500 mt-1">Manage and monitor Telegram, Facebook, LinkedIn, Portals, and RSS feeds</p>
     </div>
     <div>
-      <button onclick="document.getElementById('add-source-modal').classList.remove('hidden')" class="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow transition">
-        + Add Information Source
+      <button onclick="document.getElementById('add-source-modal').classList.remove('hidden')" class="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition inline-flex items-center gap-1.5">
+        <span>+</span>
+        <span>Add Information Source</span>
       </button>
     </div>
   </div>
 
-  <!-- Sources Table -->
-  <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow">
-    <table class="min-w-full divide-y divide-slate-800 text-left text-xs">
-      <thead class="bg-slate-800/60 text-slate-400 uppercase font-mono text-[11px]">
-        <tr>
-          <th class="px-4 py-3">Source Name</th>
-          <th class="px-4 py-3">Connector / Type</th>
-          <th class="px-4 py-3">Target Endpoint</th>
-          <th class="px-4 py-3">Frequency</th>
-          <th class="px-4 py-3">Status</th>
-          <th class="px-4 py-3">Items Harvested</th>
-          <th class="px-4 py-3">Last Synchronized</th>
-          <th class="px-4 py-3 text-right">Actions</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-800">
-        {% for src in sources %}
-        <tr class="hover:bg-slate-800/30 transition">
-          <td class="px-4 py-3 font-semibold text-white">
-            {{ src.name }}
-          </td>
-          <td class="px-4 py-3">
-            <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[11px]">
-              {{ src.connector.name }} ({{ src.get_source_type_display }})
-            </span>
-          </td>
-          <td class="px-4 py-3 font-mono text-slate-300 truncate max-w-[200px]">
-            {{ src.endpoint_url }}
-          </td>
-          <td class="px-4 py-3 text-slate-400">
-            Every {{ src.collection_frequency_minutes }}m
-          </td>
-          <td class="px-4 py-3">
-            <span class="px-2 py-0.5 rounded text-[11px] font-semibold
-              {% if src.health_status == 'healthy' %} bg-emerald-500/20 text-emerald-400
-              {% elif src.health_status == 'rate_limited' %} bg-amber-500/20 text-amber-400
-              {% elif src.health_status == 'paused' %} bg-slate-700 text-slate-400
-              {% else %} bg-rose-500/20 text-rose-400 {% endif %}">
-              {{ src.get_health_status_display }}
-            </span>
-          </td>
-          <td class="px-4 py-3 font-mono text-slate-300">
-            {{ src.items_count }}
-          </td>
-          <td class="px-4 py-3 text-slate-400">
-            {{ src.last_synced_at|timesince|default:"Never" }} ago
-          </td>
-          <td class="px-4 py-3 text-right space-x-2">
-            <form method="POST" class="inline">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="toggle_status">
-              <input type="hidden" name="source_id" value="{{ src.id }}">
-              <button type="submit" class="text-xs px-2 py-1 rounded border border-slate-700 bg-slate-800 text-slate-300 hover:text-white">
-                {% if src.is_active %}Pause{% else %}Resume{% endif %}
-              </button>
-            </form>
-          </td>
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="8" class="px-4 py-8 text-center text-slate-500 text-xs">
-            No sources configured yet. Click "Add Information Source" to configure Telegram channels, Facebook pages, or web feeds.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <!-- Sources Table Container -->
+  <div class="rounded-2xl border border-slate-200/90 bg-white overflow-hidden shadow-xs">
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-slate-100 text-left text-xs">
+        <thead class="bg-slate-50/80 text-slate-500 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-200/90">
+          <tr>
+            <th class="px-4 py-3.5">Source Name</th>
+            <th class="px-4 py-3.5">Connector / Type</th>
+            <th class="px-4 py-3.5">Target Endpoint</th>
+            <th class="px-4 py-3.5">Frequency</th>
+            <th class="px-4 py-3.5">Status</th>
+            <th class="px-4 py-3.5">Items Harvested</th>
+            <th class="px-4 py-3.5">Last Synchronized</th>
+            <th class="px-4 py-3.5 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for src in sources %}
+          <tr class="hover:bg-slate-50/80 transition-colors">
+            <td class="px-4 py-3.5 font-semibold text-slate-900">
+              {{ src.name }}
+            </td>
+            <td class="px-4 py-3.5">
+              <span class="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 font-mono text-[11px] border border-slate-200/70">
+                {{ src.connector.name }} ({{ src.get_source_type_display }})
+              </span>
+            </td>
+            <td class="px-4 py-3.5 font-mono text-slate-600 truncate max-w-[200px]" title="{{ src.endpoint_url }}">
+              {{ src.endpoint_url }}
+            </td>
+            <td class="px-4 py-3.5 text-slate-500 font-medium">
+              Every {{ src.collection_frequency_minutes }}m
+            </td>
+            <td class="px-4 py-3.5">
+              <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold border
+                {% if src.health_status == 'healthy' %} bg-emerald-50 text-emerald-700 border-emerald-200
+                {% elif src.health_status == 'rate_limited' %} bg-amber-50 text-amber-700 border-amber-200
+                {% elif src.health_status == 'paused' %} bg-slate-100 text-slate-600 border-slate-200
+                {% else %} bg-rose-50 text-rose-700 border-rose-200 {% endif %}">
+                {{ src.get_health_status_display }}
+              </span>
+            </td>
+            <td class="px-4 py-3.5 font-mono text-slate-900 font-semibold">
+              {{ src.items_count }}
+            </td>
+            <td class="px-4 py-3.5 text-slate-500">
+              {{ src.last_synced_at|timesince|default:"Never" }} ago
+            </td>
+            <td class="px-4 py-3.5 text-right space-x-2">
+              <form method="POST" class="inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="toggle_status">
+                <input type="hidden" name="source_id" value="{{ src.id }}">
+                <button type="submit" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold shadow-2xs transition">
+                  {% if src.is_active %}Pause{% else %}Resume{% endif %}
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" class="px-4 py-12 text-center text-slate-500 text-xs">
+              <p class="text-sm font-semibold text-slate-700">No sources configured yet.</p>
+              <p class="mt-1">Click "Add Information Source" to configure Telegram channels, Facebook pages, or web feeds.</p>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
 <!-- Add Source Modal -->
-<div id="add-source-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
-    <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-      <h3 class="text-sm font-bold text-white">Add Information Source</h3>
-      <button onclick="document.getElementById('add-source-modal').classList.add('hidden')" class="text-slate-400 hover:text-white">&times;</button>
+<div id="add-source-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-xl space-y-4">
+    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+      <h2 class="text-sm font-bold text-slate-900">Add Information Source</h2>
+      <button onclick="document.getElementById('add-source-modal').classList.add('hidden')" class="text-slate-400 hover:text-slate-700 text-lg leading-none">&times;</button>
     </div>
     
-    <form method="POST" class="space-y-3 text-xs">
+    <form method="POST" class="space-y-3.5 text-xs">
       {% csrf_token %}
       <input type="hidden" name="action" value="add_source">
 
       <div>
-        <label class="block text-slate-300 font-medium mb-1">Source Name</label>
-        <input type="text" name="name" required placeholder="e.g. Ethiopia Tenders Channel" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white focus:outline-none focus:border-blue-500">
+        <label class="block text-slate-700 font-medium mb-1">Source Name</label>
+        <input type="text" name="name" required placeholder="e.g. Ethiopia Tenders Channel" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
       </div>
 
       <div>
-        <label class="block text-slate-300 font-medium mb-1">Connector</label>
-        <select name="connector_id" required class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white focus:outline-none focus:border-blue-500">
+        <label class="block text-slate-700 font-medium mb-1">Connector</label>
+        <select name="connector_id" required class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
           {% for conn in connectors %}
           <option value="{{ conn.id }}">{{ conn.name }} ({{ conn.get_connector_type_display }})</option>
           {% endfor %}
@@ -114,8 +118,8 @@
       </div>
 
       <div>
-        <label class="block text-slate-300 font-medium mb-1">Source Type</label>
-        <select name="source_type" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white">
+        <label class="block text-slate-700 font-medium mb-1">Source Type</label>
+        <select name="source_type" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
           <option value="channel">Telegram Channel</option>
           <option value="group">Telegram Group</option>
           <option value="page">Facebook / LinkedIn Page</option>
@@ -125,24 +129,24 @@
       </div>
 
       <div>
-        <label class="block text-slate-300 font-medium mb-1">Endpoint URL or Identifier</label>
-        <input type="text" name="endpoint_url" required placeholder="e.g. @ethio_tenders, Page ID, or https://.../feed.xml" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white font-mono">
+        <label class="block text-slate-700 font-medium mb-1">Endpoint URL or Identifier</label>
+        <input type="text" name="endpoint_url" required placeholder="e.g. @ethio_tenders, Page ID, or https://.../feed.xml" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-mono focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
       </div>
 
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-slate-300 font-medium mb-1">Frequency (minutes)</label>
-          <input type="number" name="frequency" value="30" min="5" max="1440" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white">
+          <label class="block text-slate-700 font-medium mb-1">Frequency (minutes)</label>
+          <input type="number" name="frequency" value="30" min="5" max="1440" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
         </div>
         <div>
-          <label class="block text-slate-300 font-medium mb-1">Priority (1-5)</label>
-          <input type="number" name="priority" value="3" min="1" max="5" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700 text-white">
+          <label class="block text-slate-700 font-medium mb-1">Priority (1-5)</label>
+          <input type="number" name="priority" value="3" min="1" max="5" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
         </div>
       </div>
 
-      <div class="flex justify-end gap-2 pt-3 border-t border-slate-800">
-        <button type="button" onclick="document.getElementById('add-source-modal').classList.add('hidden')" class="px-3 py-1.5 rounded border border-slate-700 bg-slate-800 text-slate-300">Cancel</button>
-        <button type="submit" class="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold">Save Source</button>
+      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
+        <button type="button" onclick="document.getElementById('add-source-modal').classList.add('hidden')" class="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 font-medium shadow-2xs transition">Cancel</button>
+        <button type="submit" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs transition">Save Source</button>
       </div>
     </form>
   </div>
