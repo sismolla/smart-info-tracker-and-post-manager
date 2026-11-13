@@ -15,6 +15,12 @@ try:
 except ImportError:
     HAS_TRAFILATURA = False
 
+try:
+    from playwright.sync_api import sync_playwright
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
+
 logger = logging.getLogger(__name__)
 
 class UniversalWebConnector(BaseConnector):
@@ -286,12 +292,55 @@ class UniversalWebConnector(BaseConnector):
 
         return items
 
+    def _fetch_with_playwright(self, url: str, config: dict) -> str:
+        """
+        Selectively renders dynamic client-side SPAs (Vue, React, Angular, Next.js)
+        using headless Chromium via Playwright.
+        """
+        if not HAS_PLAYWRIGHT:
+            logger.warning("Playwright is not installed. Falling back to HTTP requests.")
+            resp = self.session.get(url, timeout=15, verify=config.get('ssl_verify', True))
+            return resp.text
+
+        ssl_verify = config.get('ssl_verify', True)
+        wait_seconds = config.get('wait_seconds', 3)
+        wait_until = config.get('wait_until', 'commit')
+        wait_selector = config.get('wait_selector') or ('table' if config.get('extract_tables') else None)
+        timeout_ms = config.get('timeout_ms', 40000)
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            )
+            context = browser.new_context(
+                ignore_https_errors=(not ssl_verify),
+                user_agent=self.USER_AGENT,
+                viewport={'width': 1280, 'height': 800}
+            )
+            page = context.new_page()
+            try:
+                page.goto(url, wait_until=wait_until, timeout=timeout_ms)
+                if wait_selector:
+                    try:
+                        page.wait_for_selector(wait_selector, timeout=18000)
+                    except Exception as we:
+                        logger.debug(f"Playwright selector wait timed out on {url}: {we}")
+                if wait_seconds:
+                    import time
+                    time.sleep(wait_seconds)
+                return page.content()
+            finally:
+                context.close()
+                browser.close()
+
     def _fetch_html_page(self, url: str, source_name: str, config: dict, limit: int = 15) -> List[NormalizedItem]:
         """Fetches and scrapes an HTML page with selector cards, table parsing, & Level-2 detail crawling."""
         ssl_verify = config.get('ssl_verify', True)
         crawl_detail = config.get('crawl_detail', True)
         extract_tables = config.get('extract_tables', False)
         max_pages = config.get('max_pages', 1)
+        use_js = config.get('requires_js', False) or config.get('render_js', False)
 
         items = []
         current_url = url
@@ -299,11 +348,15 @@ class UniversalWebConnector(BaseConnector):
 
         while current_url and pages_crawled < max_pages:
             pages_crawled += 1
-            resp = self.session.get(current_url, timeout=15, verify=ssl_verify)
-            if resp.status_code != 200:
-                raise Exception(f"HTTP Error {resp.status_code} fetching {current_url}")
 
-            soup = BeautifulSoup(resp.content, 'html.parser')
+            if use_js:
+                html_content = self._fetch_with_playwright(current_url, config)
+                soup = BeautifulSoup(html_content, 'html.parser')
+            else:
+                resp = self.session.get(current_url, timeout=15, verify=ssl_verify)
+                if resp.status_code != 200:
+                    raise Exception(f"HTTP Error {resp.status_code} fetching {current_url}")
+                soup = BeautifulSoup(resp.content, 'html.parser')
 
             item_selector = config.get('item_selector')
             title_selector = config.get('title_selector')
