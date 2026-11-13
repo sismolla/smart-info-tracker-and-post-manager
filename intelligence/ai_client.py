@@ -202,7 +202,7 @@ class AIEngine:
             name=cat_name,
             defaults={'slug': re.sub(r'[^\w-]', '', cat_name.lower().replace(' ', '-'))}
         )
-        item.categories.add(category)
+        item.categories.set([category])
 
         for tag_str in extracted_data.get('suggested_tags', []):
             clean_tag = tag_str.strip().lstrip('#').lower()
@@ -324,6 +324,14 @@ class AIEngine:
             raw_org = org_match.group(1).strip()
             parts = re.split(r'(?<!\bSt)(?<!\bCo)(?<!\bDr)(?<!\bInc)(?<!\bLtd)\.\s+', raw_org)
             org = parts[0].strip()
+        elif 'efda' in text_lower or 'food and drug authority' in text_lower:
+            org = "Ethiopian Food and Drug Authority (EFDA)"
+        elif 'ministry of health' in text_lower or 'moh' in text_lower:
+            org = "Ministry of Health (MOH)"
+        elif 'public health institute' in text_lower or 'ephi' in text_lower:
+            org = "Ethiopian Public Health Institute (EPHI)"
+        elif 'public procurement' in text_lower or 'ppa' in text_lower:
+            org = "Public Procurement and Property Authority (PPA)"
         elif item.author and item.author != 'Unknown':
             org = item.author
 

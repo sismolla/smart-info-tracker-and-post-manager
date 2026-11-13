@@ -97,38 +97,279 @@ class UniversalWebConnector(BaseConnector):
 
         return items
 
-    def _fetch_detail_content(self, url: str, ssl_verify: bool = True) -> Optional[str]:
+    SOURCE_EXTRACTION_PROFILES = {
+        'efda.gov.et': {
+            'content_selectors': [
+                '.entry-content',
+                'article .entry-content',
+                '.post-content',
+                '.post-entry',
+                'article',
+            ],
+            'strip_selectors': [
+                '.masthead', '.phantom-header', '#header', '.header-bar', '.top-bar', 
+                '.footer', 'footer', '#footer', 'nav', '.menu', '.sidebar', 
+                '.related-posts', '.share-buttons', '.sharedaddy', '.jp-relatedposts', 
+                '.widget-area', '.breadcrumb', '.navigation', '.site-header',
+            ],
+            'title_selectors': ['h1.entry-title', 'h1.post-title', 'h1', '.entry-title'],
+        },
+        'moh.gov.et': {
+            'content_selectors': [
+                'article.node .field--name-body',
+                'article.node .node__content',
+                '.node__content',
+                '.field--name-body',
+                '.region-content article',
+                'article',
+            ],
+            'strip_selectors': [
+                '#header', '#footer', '.block-menu', '.navigation', '.toolbar', 
+                '.breadcrumb', '.region-sidebar-first', '.region-sidebar-second', 
+                'nav', 'header', 'footer', '.site-header',
+            ],
+            'title_selectors': ['h1.page-title', 'h1', '.title'],
+        },
+        'ephi.gov.et': {
+            'content_selectors': [
+                '.entry-content',
+                '.post-content',
+                'article',
+                'main',
+                'table',
+            ],
+            'strip_selectors': [
+                'header', 'footer', 'nav', '.sidebar', '.menu', '#header', '#footer',
+                '.elementor-nav-menu', '.top-bar',
+            ],
+            'title_selectors': ['h1.entry-title', 'h1'],
+        },
+        'ppa.gov.et': {
+            'content_selectors': [
+                '.entry-content',
+                '.post-content',
+                'article',
+                '.content-area',
+            ],
+            'strip_selectors': [
+                'header', 'footer', 'nav', '.sidebar', '.menu', '#header', '#footer', 
+                '.top-header', '.site-header',
+            ],
+            'title_selectors': ['h1.entry-title', 'h1'],
+        },
+        'qelal.et': {
+            'content_selectors': [
+                '.tender-details',
+                '.tender-content',
+                '.tender-card-body',
+                'article',
+                'main',
+            ],
+            'strip_selectors': [
+                'header', 'footer', 'nav', '.sidebar', '.similar-tenders', 
+                '.advertisement', '.site-header',
+            ],
+            'title_selectors': ['h1.tender-title', 'h1', '.tender-name'],
+        },
+        '2merkato.com': {
+            'content_selectors': [
+                '.tender-detail',
+                '.tender-content',
+                '#tender-content',
+                'article',
+                'main',
+            ],
+            'strip_selectors': [
+                'header', 'footer', 'nav', '.sidebar', '.advertisement', '.ads',
+                '.site-header', '.top-nav',
+            ],
+            'title_selectors': ['h1', '.tender-title'],
+        },
+        'ethiojobs.net': {
+            'content_selectors': [
+                '.job-description',
+                '.job-details',
+                '.vacancy-desc',
+                '#job-details',
+                '.listing-details',
+                'article',
+            ],
+            'strip_selectors': [
+                'header', 'footer', 'nav', '.sidebar', '.similar-jobs', 
+                '.advertisement', '.apply-box', '.site-header',
+            ],
+            'title_selectors': ['h1.job-title', 'h1', '.page-title'],
+        },
+        'ena.et': {
+            'content_selectors': [
+                '.article-content',
+                '.news-content',
+                '.content-area',
+                '.entry-content',
+                'article',
+            ],
+            'strip_selectors': [
+                'header', 'footer', 'nav', '.navigation', '.sidebar', 
+                '.related-news', '.top-bar', '.site-header',
+            ],
+            'title_selectors': ['h1.article-title', 'h1'],
+        },
+        'thereporterethiopia.com': {
+            'content_selectors': [
+                '.field--name-body',
+                '.node__content',
+                '.entry-content',
+                'article',
+            ],
+            'strip_selectors': [
+                'header', 'footer', 'nav', '.sidebar', '.advertisement', 
+                '.social-share', '.site-header',
+            ],
+            'title_selectors': ['h1.page-header', 'h1'],
+        },
+        'egp.gov.et': {
+            'content_selectors': [
+                'table',
+                '.bid-details',
+                '.tender-details',
+                'main',
+            ],
+            'strip_selectors': [
+                'header', 'footer', 'nav', '.sidebar', '.site-header',
+            ],
+            'title_selectors': ['h1', 'h2'],
+        },
+    }
+
+    def extract_clean_content_by_rule(
+        self,
+        soup: BeautifulSoup,
+        url: str,
+        config: dict = None,
+        raw_html: str = ""
+    ) -> tuple:
+        """
+        Extracts clean article/tender content and title using source-specific rules
+        and user-defined CSS selectors. Strips all navigation bars, mega-menus, footers,
+        and ad sidebars to prevent AI hallucination or dirty ingestion.
+        """
+        import copy
+        soup = copy.copy(soup)
+        config = config or {}
+        domain = urlparse(url).netloc.lower()
+
+        # Find matching rule from registry
+        profile = None
+        for d_key, p in self.SOURCE_EXTRACTION_PROFILES.items():
+            if d_key in domain:
+                profile = p
+                break
+
+        # 1. Strip universal boilerplate tags
+        universal_strip = [
+            'script', 'style', 'nav', 'header', 'footer', 'aside',
+            'form', 'noscript', 'svg', 'iframe', 'button', 'input'
+        ]
+        for tag in universal_strip:
+            for el in soup.find_all(tag):
+                el.decompose()
+
+        # 2. Strip profile and config junk selectors
+        strip_selectors = list(profile.get('strip_selectors', [])) if profile else []
+        if config.get('strip_selector'):
+            strip_selectors.extend([s.strip() for s in config['strip_selector'].split(',') if s.strip()])
+
+        for selector in strip_selectors:
+            for el in soup.select(selector):
+                el.decompose()
+
+        # 3. Extract Title
+        title = None
+        title_selectors = []
+        if config.get('title_selector'):
+            title_selectors.append(config['title_selector'])
+        if profile and 'title_selectors' in profile:
+            title_selectors.extend(profile['title_selectors'])
+
+        for t_sel in title_selectors:
+            t_el = soup.select_one(t_sel)
+            if t_el and t_el.get_text(strip=True):
+                title = t_el.get_text(strip=True)
+                break
+
+        if not title:
+            h1 = soup.find('h1')
+            title = h1.get_text(strip=True) if h1 else (soup.title.get_text(strip=True) if soup.title else None)
+
+        # 4. Extract Main Content via Selectors
+        content = None
+        content_selectors = []
+        if config.get('content_selector'):
+            content_selectors.append(config['content_selector'])
+        if profile and 'content_selectors' in profile:
+            content_selectors.extend(profile['content_selectors'])
+
+        for c_sel in content_selectors:
+            selectors_to_try = [s.strip() for s in c_sel.split(',')] if ',' in c_sel else [c_sel]
+            for sel in selectors_to_try:
+                c_el = soup.select_one(sel)
+                if c_el:
+                    for junk in c_el.select('script, style, .sharedaddy, .jp-relatedposts, .widget'):
+                        junk.decompose()
+                    text = c_el.get_text(separator='\n', strip=True)
+                    if len(text) > 80:
+                        content = text
+                        break
+            if content:
+                break
+
+        # 5. Fallback: Trafilatura on raw HTML if selectors yielded nothing
+        if (not content or len(content) < 80) and HAS_TRAFILATURA and raw_html:
+            try:
+                traf_text = trafilatura.extract(raw_html, include_tables=True, include_links=True)
+                if traf_text and len(traf_text.strip()) > 80:
+                    content = traf_text.strip()
+            except Exception as te:
+                logger.debug(f"Trafilatura fallback failed on {url}: {te}")
+
+        # 6. Fallback: Semantic HTML5 elements
+        if not content or len(content) < 80:
+            main = soup.select_one('article, main, [role="main"], #content, .content')
+            target = main if main else soup.body
+            if target:
+                content = target.get_text(separator='\n', strip=True)
+
+        # 7. Post-clean residual navigation phrases
+        lines = [line.strip() for line in (content or '').split('\n') if line.strip()]
+        cleaned_lines = []
+        skip_phrases = [
+            'skip to content', 'skip to main content', 'home /', 'search:',
+            'facebook twitter linkedin', 'share this:'
+        ]
+        for line in lines:
+            if any(line.lower().startswith(p) for p in skip_phrases):
+                continue
+            cleaned_lines.append(line)
+
+        clean_content = '\n\n'.join(cleaned_lines) if cleaned_lines else (content or '')
+        return title, clean_content
+
+    def _fetch_detail_content(self, url: str, ssl_verify: bool = True, config: dict = None) -> Optional[str]:
         """
         Visits an individual article or tender detail page and extracts the clean
-        main content using Trafilatura, stripping menus, sidebars, and ads.
+        main content using source-specific rule profiles, stripping menus, sidebars, and ads.
         """
         if not url or not url.startswith('http'):
             return None
 
+        config = config or {}
         try:
             resp = self.session.get(url, timeout=12, verify=ssl_verify)
             if resp.status_code == 200:
-                # 1. Try Trafilatura for clean main article & table extraction
-                if HAS_TRAFILATURA:
-                    try:
-                        clean_text = trafilatura.extract(resp.text, include_tables=True, include_links=True)
-                        if clean_text and len(clean_text.strip()) > 80:
-                            return clean_text.strip()
-                    except Exception as te:
-                        logger.debug(f"Trafilatura failed on {url}: {te}")
-
-                # 2. BeautifulSoup clean main container fallback
                 soup = BeautifulSoup(resp.content, 'html.parser')
-                for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'noscript']):
-                    tag.decompose()
-
-                main = soup.select_one(
-                    'article, main, .entry-content, .node__content, .post-content, '
-                    '#content, .content, .region-content, .detail-content, .tender-details'
-                )
-                target = main if main else soup.body
-                if target:
-                    return target.get_text(separator=' ', strip=True)
+                _, clean_text = self.extract_clean_content_by_rule(soup, url, config=config, raw_html=resp.text)
+                if clean_text and len(clean_text) > 80:
+                    return clean_text
         except Exception as e:
             logger.debug(f"Detail fetch failed for {url}: {e}")
 
@@ -187,7 +428,7 @@ class UniversalWebConnector(BaseConnector):
             # Two-Level Crawling: If content is just a short teaser (< 300 chars like MOH),
             # or if crawl_detail is explicitly requested, visit the detail page!
             if crawl_detail and (len(clean_text) < 300 or config.get('force_detail_crawl', False)):
-                detail_body = self._fetch_detail_content(link, ssl_verify=ssl_verify)
+                detail_body = self._fetch_detail_content(link, ssl_verify=ssl_verify, config=config)
                 if detail_body and len(detail_body) > len(clean_text):
                     clean_text = detail_body
 
@@ -378,7 +619,7 @@ class UniversalWebConnector(BaseConnector):
 
                     # Level-2 Crawling: Visit the detail page to get full content
                     if crawl_detail and item_url != current_url and item_url.startswith('http'):
-                        detail_text = self._fetch_detail_content(item_url, ssl_verify=ssl_verify)
+                        detail_text = self._fetch_detail_content(item_url, ssl_verify=ssl_verify, config=config)
                         if detail_text and len(detail_text) > len(content):
                             content = detail_text
 
@@ -400,23 +641,14 @@ class UniversalWebConnector(BaseConnector):
                 if table_items:
                     items.extend(table_items[:limit])
 
-            # 3. Clean Single Page Article Extraction (Using Trafilatura)
+            # 3. Clean Single Page Article Extraction (Using Source Profiles & Rules)
             if not items:
-                # Use Trafilatura to extract clean main text without nav/footer boilerplate
-                clean_body = ""
-                if HAS_TRAFILATURA:
-                    try:
-                        clean_body = trafilatura.extract(resp.text, include_tables=True, include_links=True)
-                    except Exception:
-                        pass
-
-                title_el = soup.find('h1')
-                title_text = title_el.get_text(strip=True) if title_el else soup.title.get_text(strip=True) if soup.title else source_name
-
-                if not clean_body:
-                    for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'noscript']):
-                        tag.decompose()
-                    clean_body = soup.get_text(separator=' ', strip=True)
+                raw_html_str = html_content if use_js else resp.text
+                title_text, clean_body = self.extract_clean_content_by_rule(
+                    soup, current_url, config=config, raw_html=raw_html_str
+                )
+                title_text = title_text or (soup.find('h1').get_text(strip=True) if soup.find('h1') else source_name)
+                clean_body = clean_body or title_text
 
                 items.append(NormalizedItem(
                     external_id=f"web_{abs(hash(current_url))}",
@@ -427,7 +659,7 @@ class UniversalWebConnector(BaseConnector):
                     published_at=datetime.utcnow(),
                     media_urls=[],
                     raw_payload={'url': current_url},
-                    metadata={'single_page': True, 'trafilatura_cleaned': bool(HAS_TRAFILATURA)}
+                    metadata={'single_page': True, 'rule_extracted': True}
                 ))
 
             # Check next page pagination link
