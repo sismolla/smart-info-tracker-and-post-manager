@@ -17,8 +17,9 @@ telethon>=1.34.0
 google-generativeai>=0.8.0
 
 # Optional Database Drivers for cPanel MySQL / MariaDB / PostgreSQL
-# Uncomment the driver appropriate for your host:
-# mysqlclient>=2.2.0     # For MySQL / MariaDB on cPanel
+# PyMySQL: pure-Python MySQL driver — works on cPanel without C compiler
+PyMySQL>=1.1.0
+# mysqlclient>=2.2.0     # Alternative C-extension (faster but needs libmysqlclient-dev)
 # psycopg2-binary>=2.9.9 # For PostgreSQL on VPS
 
 # Optional Mode B (Dedicated VPS Workers with Celery & Redis)

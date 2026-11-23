@@ -13,11 +13,13 @@ class PublishChannel(models.Model):
     allowing admins to connect as many channels as they need through the UI.
     """
     TYPE_TELEGRAM = 'telegram'
+    TYPE_TELEGRAM_GROUP = 'telegram_group'
     TYPE_FACEBOOK = 'facebook'
     TYPE_LINKEDIN = 'linkedin'
 
     CHANNEL_TYPES = [
-        (TYPE_TELEGRAM, 'Telegram Bot / Channel'),
+        (TYPE_TELEGRAM, 'Telegram Channel'),
+        (TYPE_TELEGRAM_GROUP, 'Telegram Group / Supergroup'),
         (TYPE_FACEBOOK, 'Facebook Page'),
         (TYPE_LINKEDIN, 'LinkedIn Organization'),
     ]
@@ -69,6 +71,10 @@ class PublishChannel(models.Model):
     @property
     def chat_id(self) -> str:
         return self.get_credentials().get('chat_id', '')
+
+    @property
+    def topic_id(self) -> str:
+        return self.get_credentials().get('topic_id', '')
 
     @property
     def tg_min_score(self) -> int:
@@ -148,6 +154,7 @@ class Publication(models.Model):
     CHANNELS = [
         ('webhook', 'Outgoing Webhook'),
         ('telegram', 'Telegram Push Alert'),
+        ('telegram_group', 'Telegram Group Push'),
         ('linkedin', 'LinkedIn Organization Post'),
         ('facebook', 'Facebook Page Feed'),
         ('api_feed', 'Consumer REST API Feed'),

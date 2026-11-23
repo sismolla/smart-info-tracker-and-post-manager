@@ -8,7 +8,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from django.conf import settings
 from connectors.models import Connector, ConnectedAccount, InformationSource, CollectionRun
-from intelligence.models import CollectedItem, Category, ExtractedEntity, AIAnalysis, DuplicateGroup, AIDailyUsageTracker, ContentVersion
+from intelligence.models import CollectedItem, Category, ExtractedEntity, AIAnalysis, DuplicateGroup, AIDailyUsageTracker, ContentVersion, TranscribedContent
 from publishing.models import Webhook, Publication, PublishChannel
 from publishing.publishers import PublishingManager, TelegramDispatcher, FacebookDispatcher, LinkedInDispatcher
 from publishing.alerts import TelegramAlertDispatcher
@@ -85,6 +85,28 @@ def sources_view(request):
             freq = int(request.POST.get('frequency', 30))
             priority = int(request.POST.get('priority', 3))
 
+            # Advanced web crawling options
+            item_selector = request.POST.get('item_selector', '').strip()
+            title_selector = request.POST.get('title_selector', '').strip()
+            link_selector = request.POST.get('link_selector', '').strip()
+            max_pages = int(request.POST.get('max_pages', 1) or 1)
+            crawl_detail = request.POST.get('crawl_detail') == 'on'
+            render_js = request.POST.get('render_js') == 'on'
+
+            config = {}
+            if item_selector:
+                config['item_selector'] = item_selector
+            if title_selector:
+                config['title_selector'] = title_selector
+            if link_selector:
+                config['link_selector'] = link_selector
+            if max_pages > 1:
+                config['max_pages'] = max_pages
+            if crawl_detail:
+                config['crawl_detail'] = True
+            if render_js:
+                config['render_js'] = True
+
             connector = get_object_or_404(Connector, id=connector_id)
             InformationSource.objects.create(
                 connector=connector,
@@ -92,7 +114,8 @@ def sources_view(request):
                 endpoint_url=endpoint,
                 source_type=source_type,
                 collection_frequency_minutes=freq,
-                priority=priority
+                priority=priority,
+                config=config,
             )
             messages.success(request, f"Source '{name}' added successfully.")
             return redirect('dashboard_sources')
@@ -116,6 +139,114 @@ def sources_view(request):
         'connectors': connectors,
     }
     return render(request, 'dashboard/sources.html', context)
+
+
+@login_required(login_url='login')
+def source_preview_api(request):
+    """
+    Live test and inspection endpoint for web and feed scrapers.
+    Does a dry-run extraction (up to 4 items) without persisting to DB or running AI pipeline,
+    and returns structured JSON showing what elements, titles, detail pages, and media were found.
+    """
+    from django.http import JsonResponse
+    import time
+    from unittest.mock import MagicMock
+    from connectors.base import registry
+
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'POST method required.'}, status=405)
+
+    source_id = request.POST.get('source_id')
+    endpoint_url = request.POST.get('endpoint_url', '').strip()
+    source_type = request.POST.get('source_type', 'website')
+    connector_type = request.POST.get('connector_type', 'web')
+
+    item_selector = request.POST.get('item_selector', '').strip()
+    title_selector = request.POST.get('title_selector', '').strip()
+    link_selector = request.POST.get('link_selector', '').strip()
+    crawl_detail = request.POST.get('crawl_detail') in ['on', 'true', '1', True]
+    render_js = request.POST.get('render_js') in ['on', 'true', '1', True]
+    max_pages = int(request.POST.get('max_pages', 1) or 1)
+
+    # If testing an existing source from dashboard
+    if source_id:
+        src = get_object_or_404(InformationSource, id=source_id)
+        endpoint_url = src.endpoint_url
+        source_type = src.source_type
+        connector_type = src.connector.connector_type
+        cfg = src.config or {}
+        item_selector = cfg.get('item_selector', item_selector)
+        title_selector = cfg.get('title_selector', title_selector)
+        link_selector = cfg.get('link_selector', link_selector)
+        crawl_detail = cfg.get('crawl_detail', crawl_detail)
+        render_js = cfg.get('render_js', render_js)
+        max_pages = cfg.get('max_pages', max_pages)
+
+    if not endpoint_url:
+        return JsonResponse({'status': 'error', 'message': 'Endpoint URL or Identifier is required.'}, status=400)
+
+    # Prepare transient config
+    config = {
+        'item_selector': item_selector or None,
+        'title_selector': title_selector or None,
+        'link_selector': link_selector or None,
+        'crawl_detail': crawl_detail,
+        'render_js': render_js,
+        'max_pages': min(max_pages, 2),
+        'timeout': 30,
+        'detail_timeout': 25,
+    }
+
+    transient_source = MagicMock()
+    transient_source.id = None
+    transient_source.name = "Preview Test Source"
+    transient_source.endpoint_url = endpoint_url
+    transient_source.source_type = source_type
+    transient_source.config = config
+
+    connector_cls = registry.get(connector_type)
+    if not connector_cls:
+        from connectors.web import UniversalWebConnector
+        connector_cls = UniversalWebConnector
+
+    connector = connector_cls()
+
+    start_time = time.time()
+    try:
+        extracted = connector.fetch_new_items(transient_source, limit=4)
+        duration = round(time.time() - start_time, 2)
+
+        items_data = []
+        for it in extracted:
+            snippet = (it.content_text or '')[:350]
+            items_data.append({
+                'title': it.title or 'Untitled Item',
+                'url': it.url,
+                'author': it.author or '',
+                'content_snippet': snippet + ('...' if len(it.content_text or '') > 350 else ''),
+                'content_length': len(it.content_text or ''),
+                'media_urls': it.media_urls[:4],
+                'media_count': len(it.media_urls),
+                'is_detail_crawled': bool(it.metadata.get('two_level_crawled')),
+            })
+
+        return JsonResponse({
+            'status': 'ok',
+            'endpoint_url': endpoint_url,
+            'selector_used': item_selector or 'Auto-detected (Tables / RSS / Full page)',
+            'count': len(items_data),
+            'duration_seconds': duration,
+            'items': items_data,
+        })
+    except Exception as e:
+        duration = round(time.time() - start_time, 2)
+        return JsonResponse({
+            'status': 'error',
+            'endpoint_url': endpoint_url,
+            'selector_used': item_selector,
+            'duration_seconds': duration,
+            'message': str(e),
+        }, status=400)
 
 @login_required(login_url='login')
 def items_view(request):
@@ -256,19 +387,29 @@ def item_detail_view(request, item_id):
                     channels = list(PublishChannel.objects.filter(id__in=selected_ids, is_active=True))
                     results = PublishingManager.publish_to_channels(item, channels, force=True)
                     success_names = [n for n, ok in results.items() if ok]
-                    fail_names    = [n for n, ok in results.items() if not ok]
+                    fail_names = []
+                    for ch in channels:
+                        if not results.get(ch.name):
+                            ch.refresh_from_db(fields=['last_test_ok', 'last_test_message'])
+                            err = ch.last_test_message.replace("Post failed: ", "") if not ch.last_test_ok and ch.last_test_message else "check channel credentials"
+                            fail_names.append(f"{ch.name} ({err})")
                     if success_names:
                         item.status = 'published'
                         item.save(update_fields=['status'])
                         messages.success(request, f"✅ Published to: {', '.join(success_names)}")
                     if fail_names:
-                        messages.error(request, f"❌ Failed for: {', '.join(fail_names)} — check channel credentials.")
+                        messages.error(request, f"❌ Failed for: {', '.join(fail_names)}")
 
             elif action == 'post_all':
                 results = PublishingManager.publish_to_all_active(item, force=True)
                 PublishingManager.dispatch_active_webhooks(item)
                 success_names = [n for n, ok in results.items() if ok]
-                fail_names    = [n for n, ok in results.items() if not ok]
+                fail_names = []
+                for ch in PublishChannel.objects.filter(is_active=True):
+                    if not results.get(ch.name):
+                        ch.refresh_from_db(fields=['last_test_ok', 'last_test_message'])
+                        err = ch.last_test_message.replace("Post failed: ", "") if not ch.last_test_ok and ch.last_test_message else "check credentials"
+                        fail_names.append(f"{ch.name} ({err})")
                 if results:
                     item.status = 'published'
                     item.save(update_fields=['status'])
@@ -565,7 +706,8 @@ def channels_view(request):
     destinations stored in the database instead of .env.
     """
     TYPE_FIELDS = {
-        'telegram': ['bot_token', 'chat_id', 'min_score'],
+        'telegram': ['bot_token', 'chat_id', 'topic_id', 'min_score'],
+        'telegram_group': ['bot_token', 'chat_id', 'topic_id', 'min_score'],
         'facebook': ['page_access_token', 'page_id'],
         'linkedin': ['access_token', 'org_urn'],
     }
@@ -637,16 +779,48 @@ def channels_view(request):
 
     channels = PublishChannel.objects.all().order_by('channel_type', 'name')
     recent_pubs = Publication.objects.select_related('item').filter(
-        channel__in=['telegram', 'facebook', 'linkedin']
+        channel__in=['telegram', 'telegram_group', 'facebook', 'linkedin']
     ).order_by('-published_at')[:30]
 
     context = {
         'channels': channels,
         'recent_pubs': recent_pubs,
         'type_labels': {
-            'telegram': ('📢', 'Telegram Bot / Channel', ['Bot Token', 'Chat ID / Channel ID', 'Min Relevance Score']),
+            'telegram': ('📢', 'Telegram Channel', ['Bot Token', 'Channel ID / Username', 'Topic ID (Optional)', 'Min Relevance Score']),
+            'telegram_group': ('👥', 'Telegram Group / Supergroup', ['Bot Token', 'Group ID / Chat ID', 'Topic ID (Optional)', 'Min Relevance Score']),
             'facebook': ('🌐', 'Facebook Page', ['Page Access Token', 'Facebook Page ID']),
             'linkedin': ('💼', 'LinkedIn Organization', ['Access Token', 'Organization URN or ID']),
         },
     }
     return render(request, 'dashboard/channels.html', context)
+
+
+# ─── PWA Service Worker & Manifest Views ──────────────────────────────────────
+from django.http import FileResponse, HttpResponse
+
+def service_worker_view(request):
+    """Serves sw.js from the root URL with Service-Worker-Allowed header."""
+    sw_path = os.path.join(settings.BASE_DIR, 'dashboard', 'static', 'sw.js')
+    if os.path.exists(sw_path):
+        response = FileResponse(open(sw_path, 'rb'), content_type='application/javascript')
+        response['Service-Worker-Allowed'] = '/'
+        response['Cache-Control'] = 'no-cache'
+        return response
+    return HttpResponse("// sw.js not found", content_type='application/javascript', status=404)
+
+def manifest_view(request):
+    """Serves manifest.json from the root URL."""
+    manifest_path = os.path.join(settings.BASE_DIR, 'dashboard', 'static', 'manifest.json')
+    if os.path.exists(manifest_path):
+        response = FileResponse(open(manifest_path, 'rb'), content_type='application/manifest+json')
+        response['Cache-Control'] = 'public, max-age=3600'
+        return response
+    return HttpResponse("{}", content_type='application/manifest+json', status=404)
+
+def offline_view(request):
+    """Serves the offline fallback page."""
+    offline_path = os.path.join(settings.BASE_DIR, 'dashboard', 'static', 'offline.html')
+    if os.path.exists(offline_path):
+        return FileResponse(open(offline_path, 'rb'), content_type='text/html')
+    return HttpResponse("<h1>You are offline</h1>", content_type='text/html', status=503)
+

@@ -1,6 +1,8 @@
 import logging
 import gc
 from datetime import timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from django import db
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django.conf import settings
@@ -52,7 +54,13 @@ class Command(BaseCommand):
 
             self.stdout.write(f"Found {len(eligible_sources)} eligible sources ready for synchronization.")
 
-            for source in eligible_sources:
+            if not eligible_sources:
+                return
+
+            def process_source(source):
+                # Each thread needs its own fresh DB connection
+                db.close_old_connections()
+
                 self.stdout.write(f"--- Synchronizing: {source.name} [{source.connector.name}] ---")
                 run = CollectionRun.objects.create(
                     source=source,
@@ -67,12 +75,22 @@ class Command(BaseCommand):
 
                     connector = connector_cls(account=source.account)
                     new_items = connector.fetch_new_items(source, since=source.last_synced_at, limit=limit)
-                    
+
                     run.items_discovered = len(new_items)
                     saved_count = 0
                     dup_count = 0
+                    stale_count = 0
+
+                    max_age_days = (source.config or {}).get('max_age_days', 3)
+                    cutoff_date = timezone.now() - timedelta(days=max_age_days)
 
                     for raw in new_items:
+                        # Drop stale items older than max_age_days (default 3 days)
+                        if raw.published_at and raw.published_at < cutoff_date:
+                            stale_count += 1
+                            self.stdout.write(f"  -> Skipping late item '{raw.title[:50]}' ({raw.published_at.strftime('%Y-%m-%d')}) > {max_age_days}d old.")
+                            continue
+
                         item, created = CollectedItem.objects.get_or_create(
                             source=source,
                             external_id=raw.external_id,
@@ -109,8 +127,9 @@ class Command(BaseCommand):
                     source.save(update_fields=['last_synced_at', 'health_status', 'error_message'])
 
                     self.stdout.write(self.style.SUCCESS(
-                        f"  -> {source.name}: {saved_count} new items saved, {dup_count} duplicates skipped."
+                        f"  -> {source.name}: {saved_count} new items saved, {dup_count} duplicates skipped, {stale_count} stale dropped."
                     ))
+                    return {'source': source.name, 'status': 'success', 'saved': saved_count, 'duplicates': dup_count}
 
                 except Exception as e:
                     logger.error(f"Failed collection for source {source.name}: {e}")
@@ -122,10 +141,40 @@ class Command(BaseCommand):
                     source.health_status = 'failing'
                     source.error_message = str(e)[:250]
                     source.save(update_fields=['health_status', 'error_message'])
-                    self.stdout.write(self.style.ERROR(f"  -> Error: {e}"))
+                    self.stdout.write(self.style.ERROR(f"  -> Error on {source.name}: {e}"))
+                    return {'source': source.name, 'status': 'failed', 'error': str(e)}
 
-                # Garbage collection per source to keep memory low on cPanel
-                gc.collect()
+            # 2. Run all sources in parallel (capped at 3 workers for cPanel shared hosting)
+            max_workers = min(3, len(eligible_sources))
+            results = []
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(process_source, source): source for source in eligible_sources}
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                        results.append(result)
+                    except Exception as e:
+                        source = futures[future]
+                        logger.error(f"Unhandled exception in thread for source {source.name}: {e}")
+                        results.append({'source': source.name, 'status': 'failed', 'error': str(e)})
+
+            # 3. Summary
+            succeeded = [r for r in results if r.get('status') == 'success']
+            failed = [r for r in results if r.get('status') == 'failed']
+            total_saved = sum(r.get('saved', 0) for r in succeeded)
+            total_dups = sum(r.get('duplicates', 0) for r in succeeded)
+            self.stdout.write(self.style.SUCCESS(
+                f"Batch complete: {len(succeeded)}/{len(eligible_sources)} sources succeeded. "
+                f"{total_saved} items saved, {total_dups} duplicates skipped."
+            ))
+            if failed:
+                self.stdout.write(self.style.ERROR(
+                    f"{len(failed)} source(s) failed: {', '.join(r['source'] for r in failed)}"
+                ))
+
+            # 4. Garbage collection after all threads complete (not inside threads)
+            gc.collect()
 
         finally:
             DatabaseLock.release(lock_key)

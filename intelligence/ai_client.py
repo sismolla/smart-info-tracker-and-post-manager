@@ -3,8 +3,10 @@ import re
 import json
 import logging
 import threading
+from datetime import datetime, timezone as dt_timezone
 from typing import Dict, Any, Optional, List
 from django.conf import settings
+from django.utils import timezone
 from .language import detect_language
 from .scoring import calculate_relevance_score
 from .models import CollectedItem, AIAnalysis, ExtractedEntity, Category, Tag, AIDailyUsageTracker
@@ -138,8 +140,11 @@ Respond ONLY with valid JSON in this exact structure:
     "currency": "ETB, USD, EUR, etc. or null"
   },
   "dates": {
-    "deadline_iso": "YYYY-MM-DD or null (converted to standard Gregorian calendar date)",
-    "deadline_original": "Original deadline text as written (e.g. ታህሳስ 10 ቀን 2018 ዓ.ም), or null"
+    "posted_date_iso": "YYYY-MM-DD or null (publication/posted date converted to standard Gregorian calendar ISO)",
+    "posted_date_original": "Original posted/publication date as written (e.g. August 25, 2026 or ኅዳር 2 ቀን 2019), or null",
+    "deadline_iso": "YYYY-MM-DD or null (tender/job submission closing date converted to standard Gregorian calendar date)",
+    "deadline_original": "Original deadline text as written (e.g. ታህሳስ 10 ቀን 2018 ዓ.ም), or null",
+    "is_expired": "true if the application or tender deadline has already passed, false otherwise"
   },
   "scoring": {
     "relevance_score": 0 to 100 integer,
@@ -299,6 +304,34 @@ class AIEngine:
         financial_info = extracted_data.get('financials', {})
         dates_info = extracted_data.get('dates', {})
 
+        # Structured Dates & Deadlines
+        posted_date_iso = dates_info.get('posted_date_iso')
+        posted_date_original = dates_info.get('posted_date_original')
+        deadline_iso = dates_info.get('deadline_iso')
+        deadline_original = dates_info.get('deadline_original')
+
+        is_expired = False
+        if dates_info.get('is_expired') is True:
+            is_expired = True
+        elif deadline_iso:
+            try:
+                dl_date = datetime.fromisoformat(deadline_iso).date()
+                if dl_date < timezone.now().date():
+                    is_expired = True
+            except Exception:
+                pass
+
+        # If item.published_at was not yet populated, set it from posted_date_iso
+        if posted_date_iso and not item.published_at:
+            try:
+                p_dt = datetime.fromisoformat(posted_date_iso)
+                if timezone.is_naive(p_dt):
+                    p_dt = timezone.make_aware(p_dt, dt_timezone.utc)
+                item.published_at = p_dt
+                item.save(update_fields=['published_at'])
+            except Exception:
+                pass
+
         # Compute legacy price string for backwards compatibility
         primary_price = (
             financial_info.get('estimated_budget') or
@@ -327,28 +360,21 @@ class AIEngine:
                 'salary_max': financial_info.get('salary_max') or None,
                 'currency': financial_info.get('currency') or 'ETB',
                 'price': primary_price,
-                # Structured Dates
-                'deadline_iso': dates_info.get('deadline_iso'),
-                'deadline_original': dates_info.get('deadline_original'),
-                'tender_deadline': dates_info.get('deadline_iso') or dates_info.get('deadline_original'),
-                'application_deadline': dates_info.get('deadline_iso') or dates_info.get('deadline_original'),
+                # Structured Dates & Freshness
+                'posted_date_iso': posted_date_iso,
+                'posted_date_original': posted_date_original,
+                'deadline_iso': deadline_iso,
+                'deadline_original': deadline_original,
+                'is_expired': is_expired,
+                'tender_deadline': deadline_iso or deadline_original,
+                'application_deadline': deadline_iso or deadline_original,
             }
         )
 
-        # 4. Compute Relevance Score
-        scoring_from_ai = extracted_data.get('scoring', {})
-        if isinstance(scoring_from_ai, dict) and 'relevance_score' in scoring_from_ai and scoring_from_ai['relevance_score'] is not None:
-            relevance_score = int(scoring_from_ai['relevance_score'])
-            relevance_explanation = scoring_from_ai.get('explanation', {
-                'commercial_significance': 25,
-                'recency_and_deadlines': 25,
-                'organization_authority': 25,
-                'clarity_and_completeness': 25,
-            })
-        else:
-            scoring_result = calculate_relevance_score(item, extracted_entities=entities)
-            relevance_score = scoring_result['total_score']
-            relevance_explanation = scoring_result['breakdown']
+        # 4. Compute Relevance Score using mathematical recency decay & penalties
+        scoring_result = calculate_relevance_score(item, extracted_entities=entities)
+        relevance_score = scoring_result['total_score']
+        relevance_explanation = scoring_result['breakdown']
 
         # 5. Save or Update AIAnalysis
         analysis, _ = AIAnalysis.objects.update_or_create(
@@ -510,16 +536,51 @@ class AIEngine:
         elif item.author and item.author != 'Unknown':
             org = item.author
 
-        # 5. Deadlines & Calendar Extraction
+        # 5. Posted Date & Deadlines Extraction
+        from connectors.web import UniversalWebConnector
+
+        posted_date_original = None
+        posted_date_iso = None
+        if item.published_at:
+            posted_date_iso = item.published_at.strftime('%Y-%m-%d')
+            posted_date_original = item.published_at.strftime('%B %d, %Y')
+        else:
+            # Check content for explicit posted datelines
+            post_m = re.search(r'(?:posted|published|date)\s*(?:on|:)?\s*([A-Za-z0-9,\s]{6,25})', content, re.IGNORECASE)
+            if post_m:
+                posted_date_original = post_m.group(1).strip()
+                p_dt = UniversalWebConnector.parse_smart_date(posted_date_original)
+                if p_dt:
+                    posted_date_iso = p_dt.strftime('%Y-%m-%d')
+
+            # Fallback: Scan text body for dates
+            if not posted_date_iso:
+                p_dt = UniversalWebConnector.parse_smart_date(content[:1500])
+                if p_dt:
+                    posted_date_iso = p_dt.strftime('%Y-%m-%d')
+                    posted_date_original = p_dt.strftime('%B %d, %Y')
+
         deadline_original = None
         deadline_iso = None
+        is_expired = False
         dl_match = re.search(r'(?:deadline|closing date|due date|መዝጊያ ቀን)\s*[:]?\s*([^\n,]+)', content, re.IGNORECASE)
         if dl_match:
             deadline_original = dl_match.group(1).strip()
-            # If standard Gregorian YYYY-MM-DD or MM/DD/YYYY is in the text, parse to ISO
             iso_match = re.search(r'\b(202[4-9]-\d{2}-\d{2})\b', deadline_original)
             if iso_match:
                 deadline_iso = iso_match.group(1)
+            else:
+                d_dt = UniversalWebConnector.parse_smart_date(deadline_original)
+                if d_dt:
+                    deadline_iso = d_dt.strftime('%Y-%m-%d')
+
+        if deadline_iso:
+            try:
+                dl_d = datetime.fromisoformat(deadline_iso).date()
+                if dl_d < timezone.now().date():
+                    is_expired = True
+            except Exception:
+                pass
 
         # 6. Phone Numbers and Clean Links (Regex is appropriate here)
         phones = re.findall(r'(?:\+251[\s.-]?|0)[79]\d{1,2}(?:[\s.-]?\d{2,3}){2,3}|\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b', content)
@@ -559,8 +620,11 @@ class AIEngine:
                 "currency": currency,
             },
             "dates": {
+                "posted_date_iso": posted_date_iso,
+                "posted_date_original": posted_date_original,
                 "deadline_iso": deadline_iso,
                 "deadline_original": deadline_original,
+                "is_expired": is_expired,
             },
             "scoring": {
                 "relevance_score": 80 if ref_no or estimated_budget or bid_bond else 60,

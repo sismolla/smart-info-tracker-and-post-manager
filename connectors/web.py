@@ -1,12 +1,14 @@
 import io
 import re
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import feedparser
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import List, Dict, Any, Optional
 from urllib.parse import urljoin, urlparse
+from django.utils import timezone
 from .base import BaseConnector, NormalizedItem
 
 try:
@@ -241,6 +243,230 @@ class UniversalWebConnector(BaseConnector):
         },
     }
 
+    ETHIOPIAN_MONTHS = {
+        'መስከረም': 9, 'ጥቅምት': 10, 'ኅዳር': 11, 'ህዳር': 11,
+        'ታኅሣሥ': 12, 'ታህሳስ': 12, 'ጥር': 1, 'የካቲት': 2,
+        'መጋቢት': 3, 'ሚያዝያ': 4, 'ግንቦት': 5, 'ሰኔ': 6,
+        'ሐምሌ': 7, 'ሃምሌ': 7, 'ነሐሴ': 8, 'ነሃሴ': 8,
+        'ጳጉሜ': 9, 'ጳጉመን': 9
+    }
+
+    @classmethod
+    def parse_smart_date(cls, date_str: str) -> Optional[datetime]:
+        """
+        Robust date parser supporting:
+          - ISO 8601 (e.g. '2026-08-11T06:58:32+00:00', '2026-08-11')
+          - Standard English dates ('August 25, 2026', 'Aug 11, 2026', '25 August 2026')
+          - Text datelines with attached author/text ('August 25, 2026Bydawit', 'Aug112026')
+          - Relative dates ('2 hours ago', 'yesterday', '3 days ago')
+          - Ethiopian calendar dates ('ኅዳር 2 ቀን 2019', 'ነሐሴ 15 ቀን 2018')
+        Always returns a timezone-aware datetime in UTC.
+        """
+        if not date_str or not isinstance(date_str, str):
+            return None
+
+        clean = date_str.strip()
+        if not clean or len(clean) < 4:
+            return None
+
+        now = timezone.now()
+        lower = clean.lower()
+
+        # 1. Relative dates
+        if 'yesterday' in lower:
+            return now - timedelta(days=1)
+        if 'today' in lower or 'just now' in lower:
+            return now
+
+        rel_match = re.search(r'(\d+)\s+(minute|hour|day|week|month)s?\s+ago', lower)
+        if rel_match:
+            val = int(rel_match.group(1))
+            unit = rel_match.group(2)
+            if unit == 'minute':
+                return now - timedelta(minutes=val)
+            elif unit == 'hour':
+                return now - timedelta(hours=val)
+            elif unit == 'day':
+                return now - timedelta(days=val)
+            elif unit == 'week':
+                return now - timedelta(weeks=val)
+            elif unit == 'month':
+                return now - timedelta(days=val * 30)
+
+        # 2. ISO 8601 format
+        try:
+            iso_candidate = clean.replace('Z', '+00:00')
+            dt = datetime.fromisoformat(iso_candidate)
+            if timezone.is_naive(dt):
+                dt = timezone.make_aware(dt, dt_timezone.utc)
+            return dt
+        except Exception:
+            pass
+
+        # 3. Clean prefixes / suffixes
+        cleaned = re.sub(r'^(?:posted\s*(?:on)?|published\s*(?:on)?|date\s*:?|updated\s*(?:on)?)\s*', '', clean, flags=re.IGNORECASE)
+        cleaned = re.sub(r'(?:[\s\b]by|by)\b.*$', '', cleaned, flags=re.IGNORECASE).strip()
+
+        # 4. Standard strptime patterns
+        formats = [
+            '%B %d, %Y', '%b %d, %Y', '%d %B %Y', '%d %b %Y',
+            '%Y/%m/%d', '%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y',
+            '%B %d %Y', '%b %d %Y', '%d %B, %Y', '%d %b, %Y',
+            '%A, %B %d, %Y', '%a, %d %b %Y', '%a, %d %b %Y %H:%M:%S %z'
+        ]
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(cleaned, fmt)
+                if timezone.is_naive(dt):
+                    dt = timezone.make_aware(dt, dt_timezone.utc)
+                return dt
+            except Exception:
+                continue
+
+        # 5. Regex for Month Day, Year embedded in string (e.g. "August 25, 2026Bydawit" or "Aug112026")
+        m = re.search(
+            r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*(\d{1,2}),?\s*(\d{4})',
+            clean,
+            re.IGNORECASE
+        )
+        if m:
+            month_str = m.group(1)[:3].capitalize()
+            day_str = m.group(2)
+            year_str = m.group(3)
+            try:
+                dt = datetime.strptime(f"{month_str} {day_str} {year_str}", "%b %d %Y")
+                if timezone.is_naive(dt):
+                    dt = timezone.make_aware(dt, dt_timezone.utc)
+                return dt
+            except Exception:
+                pass
+
+        # 6. Ethiopian calendar conversion
+        for am_month, g_month in cls.ETHIOPIAN_MONTHS.items():
+            if am_month in clean:
+                em = re.search(fr'{am_month}\s+(\d{{1,2}})\s*(?:ቀን)?\s*(\d{{4}})', clean)
+                if em:
+                    e_day = int(em.group(1))
+                    e_year = int(em.group(2))
+                    g_year = e_year + 7 if g_month >= 9 else e_year + 8
+                    try:
+                        dt = datetime(g_year, g_month, min(e_day, 28))
+                        return timezone.make_aware(dt, dt_timezone.utc)
+                    except Exception:
+                        pass
+
+        return None
+
+    @classmethod
+    def extract_published_date(cls, soup: BeautifulSoup, url: str = "", raw_html: str = "") -> Optional[datetime]:
+        """
+        Inspects HTML soup, meta headers, structured JSON-LD, time tags, CSS selectors,
+        and content text to accurately identify the original posted date.
+        """
+        if not soup:
+            return None
+
+        # 1. Meta Tags (article:published_time, og:published_time, date, publication_date)
+        meta_candidates = [
+            ('property', 'article:published_time'),
+            ('property', 'og:published_time'),
+            ('property', 'og:article:published_time'),
+            ('name', 'publication_date'),
+            ('name', 'publishdate'),
+            ('name', 'date'),
+            ('name', 'DC.date.issued'),
+            ('name', 'sailthru.date'),
+            ('itemprop', 'datePublished'),
+        ]
+        for attr, key in meta_candidates:
+            meta_tag = soup.find('meta', attrs={attr: key})
+            if meta_tag and meta_tag.get('content'):
+                parsed = cls.parse_smart_date(meta_tag['content'])
+                if parsed:
+                    return parsed
+
+        # 2. <time> HTML5 tags
+        for t in soup.find_all('time'):
+            dt_str = t.get('datetime') or t.get('pubdate') or t.get_text(strip=True)
+            if dt_str:
+                parsed = cls.parse_smart_date(dt_str)
+                if parsed:
+                    return parsed
+
+        # 3. JSON-LD Structured Data (<script type="application/ld+json">)
+        for s in soup.find_all('script', type=lambda t: t and 'ld+json' in t.lower()):
+            text = s.string or s.get_text()
+            if text:
+                m = re.search(r'"(?:datePublished|dateCreated|uploadDate)"\s*:\s*"([^"]+)"', text)
+                if m:
+                    parsed = cls.parse_smart_date(m.group(1))
+                    if parsed:
+                        return parsed
+
+        # 4. Standard CMS Date Classes
+        cms_date_selectors = [
+            '.node__submitted-date',
+            '.node__submitted-info',
+            '.submitted',
+            '.entry-date',
+            '.posted-on',
+            '.post_date',
+            '.post-date',
+            '.views-field-created',
+            '.views-field-post-date',
+            '.date-display-single',
+            '.article__date',
+            '.meta-date',
+            '.published',
+            '[class*="post-date"]',
+            '[class*="entry-date"]',
+        ]
+        for sel in cms_date_selectors:
+            el = soup.select_one(sel)
+            if el:
+                txt = el.get('datetime') or el.get_text(strip=True)
+                parsed = cls.parse_smart_date(txt)
+                if parsed:
+                    return parsed
+
+        # 5. URL date pattern (e.g. /2026/08/11/slug/ or /2026-08-11/)
+        if url:
+            url_m = re.search(r'/(202[0-9])/([0-1][0-9])/([0-3][0-9])/', url)
+            if url_m:
+                try:
+                    dt = datetime(int(url_m.group(1)), int(url_m.group(2)), int(url_m.group(3)))
+                    return timezone.make_aware(dt, dt_timezone.utc)
+                except Exception:
+                    pass
+            url_dash = re.search(r'/(202[0-9])-([0-1][0-9])-([0-3][0-9])/', url)
+            if url_dash:
+                try:
+                    dt = datetime(int(url_dash.group(1)), int(url_dash.group(2)), int(url_dash.group(3)))
+                    return timezone.make_aware(dt, dt_timezone.utc)
+                except Exception:
+                    pass
+
+        # 6. Scanning text content dateline
+        full_text = soup.get_text(separator=' ', strip=True)
+        snippet = full_text[:2000]
+        m_txt = re.search(
+            r'\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s*(\d{4})\b',
+            snippet,
+            re.IGNORECASE
+        )
+        if m_txt:
+            parsed = cls.parse_smart_date(m_txt.group(0))
+            if parsed:
+                return parsed
+
+        for am_month in cls.ETHIOPIAN_MONTHS.keys():
+            if am_month in snippet:
+                parsed = cls.parse_smart_date(snippet)
+                if parsed:
+                    return parsed
+
+        return None
+
     def extract_clean_content_by_rule(
         self,
         soup: BeautifulSoup,
@@ -413,25 +639,27 @@ class UniversalWebConnector(BaseConnector):
     def _fetch_detail_content(self, url: str, ssl_verify: bool = True, config: dict = None, return_media: bool = False):
         """
         Visits an individual article or tender detail page and extracts the clean
-        main content and images using source-specific rule profiles.
+        main content, title, images, and smart publication date using source-specific rule profiles.
         """
         if not url or not url.startswith('http'):
-            return (None, []) if return_media else None
+            return (None, None, [], None) if return_media else None
 
         config = config or {}
+        detail_timeout = config.get('detail_timeout', 25)
         try:
-            resp = self.session.get(url, timeout=12, verify=ssl_verify)
+            resp = self.session.get(url, timeout=detail_timeout, verify=ssl_verify)
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.content, 'html.parser')
                 images = self.extract_images_from_soup(soup, url)
-                _, clean_text = self.extract_clean_content_by_rule(soup, url, config=config, raw_html=resp.text)
+                detail_date = self.extract_published_date(soup, url=url, raw_html=resp.text)
+                clean_title, clean_text = self.extract_clean_content_by_rule(soup, url, config=config, raw_html=resp.text)
                 if clean_text and len(clean_text) > 80:
-                    return (clean_text, images) if return_media else clean_text
-                return (None, images) if return_media else None
+                    return (clean_title, clean_text, images, detail_date) if return_media else clean_text
+                return (clean_title, None, images, detail_date) if return_media else None
         except Exception as e:
             logger.debug(f"Detail fetch failed for {url}: {e}")
 
-        return (None, []) if return_media else None
+        return (None, None, [], None) if return_media else None
 
     def _fetch_feed(self, url: str, source_name: str, config: dict, since: Optional[datetime] = None, limit: int = 30) -> List[NormalizedItem]:
         """Parses RSS/Atom feeds with smart pagination, image discovery, and two-level detail enrichment."""
@@ -463,6 +691,8 @@ class UniversalWebConnector(BaseConnector):
                 break
 
         items = []
+        parsed_entries = []
+        links_to_crawl = []
         for entry in all_entries[:limit]:
             title = entry.get('title', 'Untitled Feed Item')
             link = entry.get('link', url)
@@ -478,10 +708,24 @@ class UniversalWebConnector(BaseConnector):
 
             pub_date = None
             if entry.get('published_parsed'):
-                pub_date = datetime(*entry.published_parsed[:6])
+                try:
+                    dt = datetime(*entry.published_parsed[:6])
+                    pub_date = timezone.make_aware(dt, dt_timezone.utc)
+                except Exception:
+                    pass
+            elif entry.get('published') or entry.get('updated') or entry.get('created'):
+                pub_date = self.parse_smart_date(entry.get('published') or entry.get('updated') or entry.get('created'))
 
             if since and pub_date and pub_date <= since:
                 continue
+
+            # Drop stale news older than max_age_days (default: 3 days)
+            max_age_days = config.get('max_age_days', 3)
+            if pub_date:
+                age_seconds = (timezone.now() - pub_date).total_seconds()
+                if age_seconds > max_age_days * 86400:
+                    logger.debug(f"Skipping stale feed item '{title}' ({pub_date}) older than {max_age_days}d.")
+                    continue
 
             # Extract media images from RSS entry
             entry_images = []
@@ -513,23 +757,81 @@ class UniversalWebConnector(BaseConnector):
                 if src and not src.startswith('data:'):
                     add_feed_img(urljoin(link, src))
 
-            # Two-Level Crawling: Enrich teaser text and discover high-res images from detail page
-            if crawl_detail and (len(clean_text) < 300 or config.get('force_detail_crawl', False) or not entry_images):
-                detail_body, detail_images = self._fetch_detail_content(link, ssl_verify=ssl_verify, config=config, return_media=True)
+            need_detail = crawl_detail and (len(clean_text) < 300 or config.get('force_detail_crawl', False) or not entry_images)
+            if need_detail and link and link.startswith('http'):
+                links_to_crawl.append(link)
+
+            parsed_entries.append({
+                'entry_id': entry_id,
+                'title': title,
+                'clean_text': clean_text,
+                'link': link,
+                'author': author,
+                'pub_date': pub_date,
+                'entry_images': entry_images,
+                'seen_imgs': seen_imgs,
+                'need_detail': need_detail,
+            })
+
+        # Parallel detail page crawling for feed items
+        detail_results = {}
+        unique_links = list(set(links_to_crawl))
+        if unique_links:
+            max_workers = min(8, len(unique_links))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_map = {
+                    executor.submit(self._fetch_detail_content, u, ssl_verify, config, True): u
+                    for u in unique_links
+                }
+                for future in as_completed(future_map):
+                    u = future_map[future]
+                    try:
+                        detail_results[u] = future.result()
+                    except Exception as e:
+                        logger.debug(f"Parallel feed detail fetch failed for {u}: {e}")
+
+        # Assemble normalized items
+        for p in parsed_entries:
+            title = p['title']
+            clean_text = p['clean_text']
+            entry_images = p['entry_images']
+            seen_imgs = p['seen_imgs']
+            link = p['link']
+
+            pub_date = p['pub_date']
+            if p['need_detail'] and link in detail_results and detail_results[link]:
+                detail_title, detail_body, detail_images, detail_date = detail_results[link]
                 if detail_body and len(detail_body) > len(clean_text):
                     clean_text = detail_body
-                for d_img in detail_images:
-                    add_feed_img(d_img)
+                if detail_title and (not title or title == 'Untitled Feed Item'):
+                    title = detail_title
+                for d_img in (detail_images or []):
+                    if d_img and d_img.startswith('http') and d_img not in seen_imgs:
+                        seen_imgs.add(d_img)
+                        entry_images.append(d_img)
+                if not pub_date and detail_date:
+                    pub_date = detail_date
+
+            if not pub_date and clean_text:
+                pub_date = self.parse_smart_date(clean_text[:600])
+
+            # Drop stale items discovered during detail enrichment older than max_age_days
+            max_age_days = config.get('max_age_days', 3)
+            if pub_date:
+                age_seconds = (timezone.now() - pub_date).total_seconds()
+                if age_seconds > max_age_days * 86400:
+                    logger.debug(f"Dropping stale feed item '{title}' ({pub_date}) older than {max_age_days}d.")
+                    continue
 
             items.append(NormalizedItem(
-                external_id=f"rss_{abs(hash(entry_id))}",
+                external_id=f"rss_{abs(hash(p['entry_id']))}",
                 title=title[:200],
                 content_text=clean_text or title,
                 url=link,
-                author=author,
+                author=p['author'],
                 published_at=pub_date,
                 media_urls=entry_images,
-                raw_payload={'title': title, 'link': link, 'id': entry_id},
+                raw_payload={'title': title, 'link': link, 'id': p['entry_id']},
                 metadata={'feed_source': source_name, 'image_count': len(entry_images)}
             ))
 
@@ -555,13 +857,22 @@ class UniversalWebConnector(BaseConnector):
                     full_text = f"PDF Document from {url} (No extractable text layer)"
 
                 title = full_text.split('\n')[0][:120] if full_text else f"PDF Document: {source_name}"
+                pdf_date = self.parse_smart_date(full_text[:1000])
+
+                # Drop stale PDF document older than max_age_days
+                if pdf_date:
+                    max_age_days = config.get('max_age_days', 3)
+                    age_seconds = (timezone.now() - pdf_date).total_seconds()
+                    if age_seconds > max_age_days * 86400:
+                        logger.debug(f"Dropping stale PDF document '{title}' ({pdf_date}) older than {max_age_days}d.")
+                        return None
                 return NormalizedItem(
                     external_id=f"pdf_{abs(hash(url))}",
                     title=title,
                     content_text=full_text,
                     url=url,
                     author=source_name,
-                    published_at=datetime.utcnow(),
+                    published_at=pdf_date,
                     media_urls=[url],
                     raw_payload={'url': url, 'page_count': len(pdf_reader.pages)},
                     metadata={'is_pdf': True, 'page_count': len(pdf_reader.pages)}
@@ -608,13 +919,28 @@ class UniversalWebConnector(BaseConnector):
 
                 item_url = links[0] if links else f"{url}#table-{t_idx+1}-row-{r_idx+1}"
 
+                # Extract date from table cells if available
+                row_date = None
+                for c in cells:
+                    d = self.parse_smart_date(c)
+                    if d:
+                        row_date = d
+                        break
+
+                # Drop stale table notices older than max_age_days
+                if row_date:
+                    max_age_days = config.get('max_age_days', 3)
+                    age_seconds = (timezone.now() - row_date).total_seconds()
+                    if age_seconds > max_age_days * 86400:
+                        continue
+
                 items.append(NormalizedItem(
                     external_id=f"table_{abs(hash(item_url + content_str))}",
                     title=title[:200],
                     content_text=content_str,
                     url=item_url,
                     author=source_name,
-                    published_at=datetime.utcnow(),
+                    published_at=row_date,
                     media_urls=pdf_links,
                     raw_payload={'table_index': t_idx + 1, 'row_index': r_idx + 1, 'cells': cells},
                     metadata={'is_table_record': True, 'table_headers': headers}
@@ -683,7 +1009,7 @@ class UniversalWebConnector(BaseConnector):
                 html_content = self._fetch_with_playwright(current_url, config)
                 soup = BeautifulSoup(html_content, 'html.parser')
             else:
-                resp = self.session.get(current_url, timeout=15, verify=ssl_verify)
+                resp = self.session.get(current_url, timeout=config.get('timeout', 30), verify=ssl_verify)
                 if resp.status_code != 200:
                     raise Exception(f"HTTP Error {resp.status_code} fetching {current_url}")
                 soup = BeautifulSoup(resp.content, 'html.parser')
@@ -696,8 +1022,10 @@ class UniversalWebConnector(BaseConnector):
             # 1. Custom CSS Selector Cards
             if item_selector:
                 elements = soup.select(item_selector)[:limit]
+                parsed_cards = []
+                detail_urls_to_crawl = []
                 for el in elements:
-                    t_el = el.select_one(title_selector) if title_selector else el.find(['h1', 'h2', 'h3', 'h4'])
+                    t_el = el.select_one(title_selector) if title_selector else (el.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']) or el.select_one('.title, [class*="title"], [class*="heading"]'))
                     title = t_el.get_text(strip=True) if t_el else "Scraped Item"
 
                     b_el = el.select_one(body_selector) if body_selector else el
@@ -706,6 +1034,26 @@ class UniversalWebConnector(BaseConnector):
                     l_el = el.select_one(link_selector) if link_selector else el.find('a')
                     item_url = urljoin(current_url, l_el['href']) if l_el and l_el.get('href') else current_url
 
+                    # Extract date from card if available
+                    card_date = None
+                    date_sel = config.get('date_selector')
+                    if date_sel:
+                        d_el = el.select_one(date_sel)
+                        if d_el:
+                            card_date = self.parse_smart_date(d_el.get('datetime') or d_el.get_text(strip=True))
+                    if not card_date:
+                        time_el = el.find('time') or el.select_one('.node__submitted-date, .post_date, .post-date, .entry-date, .date, .tender-date, .meta-date, [class*="date"]')
+                        if time_el:
+                            card_date = self.parse_smart_date(time_el.get('datetime') or time_el.get_text(strip=True))
+
+                    # Drop stale news older than max_age_days (default: 3 days)
+                    max_age_days = config.get('max_age_days', 3)
+                    if card_date:
+                        age_seconds = (timezone.now() - card_date).total_seconds()
+                        if age_seconds > max_age_days * 86400:
+                            logger.debug(f"Skipping stale card '{title}' ({card_date}) older than {max_age_days}d.")
+                            continue
+
                     # Extract images from card
                     card_images = []
                     for img in el.find_all('img'):
@@ -713,14 +1061,63 @@ class UniversalWebConnector(BaseConnector):
                         if src and not src.startswith('data:'):
                             card_images.append(urljoin(current_url, src))
 
-                    # Level-2 Crawling: Visit the detail page to get full content & high-res images
                     if crawl_detail and item_url != current_url and item_url.startswith('http'):
-                        detail_text, detail_images = self._fetch_detail_content(item_url, ssl_verify=ssl_verify, config=config, return_media=True)
+                        detail_urls_to_crawl.append(item_url)
+
+                    parsed_cards.append({
+                        'title': title,
+                        'content': content,
+                        'item_url': item_url,
+                        'card_images': card_images,
+                        'card_date': card_date,
+                    })
+
+                # Parallel detail page crawling for cards
+                card_detail_results = {}
+                unique_card_urls = list(set(detail_urls_to_crawl))
+                if unique_card_urls:
+                    max_workers = min(8, len(unique_card_urls))
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        future_map = {
+                            executor.submit(self._fetch_detail_content, u, ssl_verify, config, True): u
+                            for u in unique_card_urls
+                        }
+                        for future in as_completed(future_map):
+                            u = future_map[future]
+                            try:
+                                card_detail_results[u] = future.result()
+                            except Exception as e:
+                                logger.debug(f"Parallel card detail fetch failed for {u}: {e}")
+
+                for card in parsed_cards:
+                    title = card['title']
+                    content = card['content']
+                    item_url = card['item_url']
+                    card_images = card['card_images']
+                    final_date = card.get('card_date')
+
+                    if item_url in card_detail_results and card_detail_results[item_url]:
+                        detail_title, detail_text, detail_images, detail_date = card_detail_results[item_url]
+                        if detail_title and (not title or title == "Scraped Item" or len(title) < 5):
+                            title = detail_title
                         if detail_text and len(detail_text) > len(content):
                             content = detail_text
-                        for d_img in detail_images:
+                        for d_img in (detail_images or []):
                             if d_img not in card_images:
                                 card_images.append(d_img)
+                        if detail_date:
+                            final_date = detail_date
+
+                    if not final_date and content:
+                        final_date = self.parse_smart_date(content[:600])
+
+                    # Drop stale card items older than max_age_days
+                    max_age_days = config.get('max_age_days', 3)
+                    if final_date:
+                        age_seconds = (timezone.now() - final_date).total_seconds()
+                        if age_seconds > max_age_days * 86400:
+                            logger.debug(f"Dropping stale card '{title}' ({final_date}) older than {max_age_days}d.")
+                            continue
 
                     items.append(NormalizedItem(
                         external_id=f"web_{abs(hash(item_url + title))}",
@@ -728,7 +1125,7 @@ class UniversalWebConnector(BaseConnector):
                         content_text=content or title,
                         url=item_url,
                         author=source_name,
-                        published_at=datetime.utcnow(),
+                        published_at=final_date,
                         media_urls=card_images,
                         raw_payload={'scraped_url': item_url},
                         metadata={'scraped': True, 'two_level_crawled': crawl_detail, 'image_count': len(card_images)}
@@ -744,6 +1141,16 @@ class UniversalWebConnector(BaseConnector):
             if not items:
                 raw_html_str = html_content if use_js else resp.text
                 single_images = self.extract_images_from_soup(soup, current_url)
+                single_date = self.extract_published_date(soup, url=current_url, raw_html=raw_html_str)
+
+                # Drop stale single page article older than max_age_days
+                max_age_days = config.get('max_age_days', 3)
+                if single_date:
+                    age_seconds = (timezone.now() - single_date).total_seconds()
+                    if age_seconds > max_age_days * 86400:
+                        logger.debug(f"Dropping stale single page article ({single_date}) older than {max_age_days}d.")
+                        break
+
                 title_text, clean_body = self.extract_clean_content_by_rule(
                     soup, current_url, config=config, raw_html=raw_html_str
                 )
@@ -756,7 +1163,7 @@ class UniversalWebConnector(BaseConnector):
                     content_text=clean_body[:25000],
                     url=current_url,
                     author=source_name,
-                    published_at=datetime.utcnow(),
+                    published_at=single_date,
                     media_urls=single_images,
                     raw_payload={'url': current_url},
                     metadata={'single_page': True, 'rule_extracted': True, 'image_count': len(single_images)}

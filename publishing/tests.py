@@ -2,8 +2,8 @@ from unittest.mock import patch, MagicMock
 from django.test import TestCase, override_settings
 from connectors.models import Connector, InformationSource
 from intelligence.models import CollectedItem, AIAnalysis, ExtractedEntity
-from publishing.models import Webhook, Publication
-from publishing.publishers import PublishingManager
+from publishing.models import Webhook, Publication, PublishChannel
+from publishing.publishers import PublishingManager, TelegramDispatcher
 from publishing.alerts import TelegramAlertDispatcher
 
 class PublishingAndAlertTests(TestCase):
@@ -152,3 +152,67 @@ class PublishingAndAlertTests(TestCase):
             fb_res = PublishingManager.publish_to_facebook(self.item)
             self.assertFalse(li_res)
             self.assertFalse(fb_res)
+
+    def test_telegram_group_dispatch_with_topic(self):
+        """Verify Telegram Group publishing supports group chat IDs and topic_id (threads)."""
+        group_channel = PublishChannel.objects.create(
+            name="Medical Community Group",
+            channel_type=PublishChannel.TYPE_TELEGRAM_GROUP,
+            is_active=True
+        )
+        group_channel.set_credentials({
+            'bot_token': '12345:group_bot_token',
+            'chat_id': '-1009876543210',
+            'topic_id': '42',
+            'min_score': '50',
+        })
+        group_channel.save()
+
+        with patch('requests.post') as mock_post:
+            mock_post.return_value = MagicMock(
+                status_code=200,
+                json=lambda: {'ok': True, 'result': {'message_id': 202}}
+            )
+            results = PublishingManager.publish_to_channels(self.item, [group_channel], force=True)
+            self.assertTrue(results.get("Medical Community Group"))
+            self.assertEqual(mock_post.call_count, 1)
+
+            payload = mock_post.call_args[1]['json']
+            self.assertEqual(payload['chat_id'], '-1009876543210')
+            self.assertEqual(payload['message_thread_id'], 42)
+            self.assertIn('Procurement of surgical gloves and masks', payload['text'])
+
+            pub = Publication.objects.filter(item=self.item, channel='telegram_group').first()
+            self.assertIsNotNone(pub)
+            self.assertEqual(pub.status, 'published')
+            self.assertIn('Topic #42', pub.destination)
+
+    def test_telegram_group_test_channel_ping(self):
+        """Verify test_channel verifies bot_token and inspects group title via getChat."""
+        group_channel = PublishChannel.objects.create(
+            name="Test Group",
+            channel_type=PublishChannel.TYPE_TELEGRAM_GROUP,
+            is_active=True
+        )
+        group_channel.set_credentials({
+            'bot_token': '12345:valid_token',
+            'chat_id': '-1001122334455',
+            'topic_id': '5',
+        })
+        group_channel.save()
+
+        with patch('requests.get') as mock_get:
+            def side_effect(url, **kwargs):
+                if 'getMe' in url:
+                    return MagicMock(status_code=200, json=lambda: {'ok': True, 'result': {'username': 'HealthAlertBot'}})
+                elif 'getChat' in url:
+                    return MagicMock(status_code=200, json=lambda: {'ok': True, 'result': {'title': 'Ethiopian Doctors Forum', 'type': 'supergroup'}})
+                return MagicMock(status_code=404)
+
+            mock_get.side_effect = side_effect
+            ok, msg = PublishingManager.test_channel(group_channel)
+            self.assertTrue(ok)
+            self.assertIn("Connected as @HealthAlertBot", msg)
+            self.assertIn("Supergroup", msg)
+            self.assertIn("Ethiopian Doctors Forum", msg)
+            self.assertIn("Topic #5", msg)

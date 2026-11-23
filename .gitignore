@@ -28,13 +28,23 @@ wheels/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+market_intel.sqlite3
 /media/
+/staticfiles/
+/logs/
 
-# Environment
+# Environment — never commit secrets
 .env
+
+# Scratch / temp files
+/scratch/
 
 # IDE
 .idea/
 .vscode/
 *.sublime-project
 *.sublime-workspace
+
+# Telethon session files (contain auth tokens)
+*.session
+*.session-journal

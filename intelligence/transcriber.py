@@ -13,6 +13,7 @@ Features:
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, Any, Tuple
 from django.conf import settings
 from .ai_client import GeminiKeyRotator
@@ -222,24 +223,25 @@ class NewsTranscriber:
         }
 
         if mode == 'both':
-            # 1. Generate English News
-            en_text, model_en = self.rewrite_as_news_english(content)
+            # Submit EN and AM rewrites in parallel — they are independent Gemini calls
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                future_en = executor.submit(self.rewrite_as_news_english, content)
+                future_am = executor.submit(self.rewrite_as_news_amharic, content)
+                en_text, model_en = future_en.result()
+                am_text, model_am = future_am.result()
+
             if en_text:
                 result['english'] = en_text
                 result['model_used'] = model_en
-                # 2. Translate English News to Amharic for consistency
-                am_text, model_am = self.translate_to_amharic(en_text)
-                if am_text:
-                    result['amharic'] = am_text
-                else:
-                    # Fallback: direct Amharic news rewrite
-                    am_text2, _ = self.rewrite_as_news_amharic(content)
-                    result['amharic'] = am_text2 or ""
             else:
-                # Direct Amharic generation if English failed
-                am_text, model_am = self.rewrite_as_news_amharic(content)
-                result['amharic'] = am_text or ""
                 result['model_used'] = model_am
+
+            if am_text:
+                result['amharic'] = am_text
+            elif en_text:
+                # Amharic generation failed — fall back to translating the English result
+                am_fallback, _ = self.translate_to_amharic(en_text)
+                result['amharic'] = am_fallback or ""
 
             result['success'] = bool(result['english'] or result['amharic'])
 

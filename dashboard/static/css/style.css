@@ -1,13 +1,109 @@
-/* Custom application styles */
+/* Custom application styles & 1-Hand Mobile Ergonomics */
+
+:root {
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+}
+
+/* Smooth mobile scrolling */
+html {
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent auto-zoom on iOS when tapping inputs */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Text Clamping Utilities */
 .line-clamp-1 {
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 1-Hand Reachability: Touch targets (minimum 44x44px for thumbs) */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mobile Bottom Navigation Safe Zone */
+.bottom-nav {
+  padding-bottom: max(env(safe-area-inset-bottom), 6px);
+}
+
+/* Floating Action Button (FAB) for thumbs */
+.fab-thumb {
+  position: fixed;
+  bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  right: 1rem;
+  z-index: 40;
+  box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4), 0 8px 10px -6px rgba(37, 99, 235, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fab-thumb:active {
+  transform: scale(0.92);
+}
+
+/* Sticky Bottom Action Sheet on Mobile */
+.mobile-sticky-action-bar {
+  position: fixed;
+  bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  left: 0;
+  right: 0;
+  z-index: 35;
+  background-color: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  padding: 0.6rem 0.85rem;
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.06);
+}
+
+/* Mobile Card Tap Feedback */
+.mobile-card-interactive {
+  transition: transform 0.1s ease, box-shadow 0.15s ease;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.mobile-card-interactive:active {
+  transform: scale(0.985);
+}
+
+/* Horizontal scroll with hidden scrollbar for swipeable pill tabs */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

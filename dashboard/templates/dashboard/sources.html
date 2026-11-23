@@ -18,8 +18,75 @@
     </div>
   </div>
 
-  <!-- Sources Table Container -->
-  <div class="rounded-2xl border border-slate-200/90 bg-white overflow-hidden shadow-xs">
+  <!-- Mobile Cards (Visible on < 768px) -->
+  <div class="md:hidden space-y-3">
+    {% for src in sources %}
+    <div class="p-4 rounded-2xl border border-slate-200/90 bg-white shadow-xs space-y-3 mobile-card-interactive">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <h3 class="font-bold text-slate-900 text-sm leading-snug">{{ src.name }}</h3>
+          <span class="inline-block mt-1 px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono text-[11px] border border-slate-200/70">
+            {{ src.connector.name }} ({{ src.get_source_type_display }})
+          </span>
+        </div>
+        <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold border shrink-0
+          {% if src.health_status == 'healthy' %} bg-emerald-50 text-emerald-700 border-emerald-200
+          {% elif src.health_status == 'rate_limited' %} bg-amber-50 text-amber-700 border-amber-200
+          {% elif src.health_status == 'paused' %} bg-slate-100 text-slate-600 border-slate-200
+          {% else %} bg-rose-50 text-rose-700 border-rose-200 {% endif %}">
+          {{ src.get_health_status_display }}
+        </span>
+      </div>
+
+      <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-100 font-mono text-xs text-slate-600 truncate" title="{{ src.endpoint_url }}">
+        🔗 {{ src.endpoint_url }}
+      </div>
+      {% if src.config.item_selector %}
+      <div class="text-[11px] font-mono text-indigo-700 bg-indigo-50/70 px-2.5 py-1 rounded-lg border border-indigo-100">
+        🎯 Card Selector: <strong>{{ src.config.item_selector }}</strong>
+      </div>
+      {% endif %}
+
+      <div class="grid grid-cols-3 gap-2 text-center text-[11px] py-1 border-y border-slate-100">
+        <div>
+          <span class="text-slate-400 block text-[10px]">Frequency</span>
+          <span class="font-semibold text-slate-700">{{ src.collection_frequency_minutes }}m</span>
+        </div>
+        <div>
+          <span class="text-slate-400 block text-[10px]">Harvested</span>
+          <span class="font-bold text-blue-600 font-mono">{{ src.items_count }}</span>
+        </div>
+        <div>
+          <span class="text-slate-400 block text-[10px]">Synced</span>
+          <span class="text-slate-600 font-medium">{{ src.last_synced_at|timesince|default:"Never" }}</span>
+        </div>
+      </div>
+
+      <!-- Thumb-friendly action buttons -->
+      <div class="flex items-center gap-2 pt-1">
+        <button type="button" onclick="inspectSource('{{ src.id }}', '{{ src.name|escapejs }}', '{{ src.endpoint_url|escapejs }}', '{{ src.config.item_selector|default:''|escapejs }}')" class="flex-1 py-2.5 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 font-semibold text-xs shadow-2xs transition active:scale-98 touch-target flex items-center justify-center gap-1.5">
+          <span>🔍 Inspect Live</span>
+        </button>
+        <form method="POST" class="flex-1">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="toggle_status">
+          <input type="hidden" name="source_id" value="{{ src.id }}">
+          <button type="submit" class="w-full py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800 font-semibold text-xs shadow-2xs transition active:scale-98 touch-target flex items-center justify-center gap-1.5">
+            {% if src.is_active %}<span>⏸ Pause</span>{% else %}<span>▶ Resume</span>{% endif %}
+          </button>
+        </form>
+      </div>
+    </div>
+    {% empty %}
+    <div class="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
+      <p class="text-sm font-semibold text-slate-700">No sources configured yet.</p>
+      <p class="mt-1">Tap the ＋ button below to configure your first channel or feed.</p>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Sources Table Container (Desktop md+ screens) -->
+  <div class="hidden md:block rounded-2xl border border-slate-200/90 bg-white overflow-hidden shadow-xs">
     <div class="overflow-x-auto">
       <table class="min-w-full divide-y divide-slate-100 text-left text-xs">
         <thead class="bg-slate-50/80 text-slate-500 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-200/90">
@@ -46,7 +113,12 @@
               </span>
             </td>
             <td class="px-4 py-3.5 font-mono text-slate-600 truncate max-w-[200px]" title="{{ src.endpoint_url }}">
-              {{ src.endpoint_url }}
+              <div>{{ src.endpoint_url }}</div>
+              {% if src.config.item_selector %}
+              <div class="text-[10px] text-indigo-600 font-semibold mt-0.5 font-sans">
+                🎯 {{ src.config.item_selector }}
+              </div>
+              {% endif %}
             </td>
             <td class="px-4 py-3.5 text-slate-500 font-medium">
               Every {{ src.collection_frequency_minutes }}m
@@ -66,12 +138,15 @@
             <td class="px-4 py-3.5 text-slate-500">
               {{ src.last_synced_at|timesince|default:"Never" }} ago
             </td>
-            <td class="px-4 py-3.5 text-right space-x-2">
+            <td class="px-4 py-3.5 text-right space-x-1.5 whitespace-nowrap">
+              <button type="button" onclick="inspectSource('{{ src.id }}', '{{ src.name|escapejs }}', '{{ src.endpoint_url|escapejs }}', '{{ src.config.item_selector|default:''|escapejs }}')" class="text-xs px-2.5 py-1.5 rounded-lg border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 font-semibold shadow-2xs transition inline-flex items-center gap-1">
+                <span>🔍</span> Preview
+              </button>
               <form method="POST" class="inline">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="toggle_status">
                 <input type="hidden" name="source_id" value="{{ src.id }}">
-                <button type="submit" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold shadow-2xs transition">
+                <button type="submit" class="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold shadow-2xs transition">
                   {% if src.is_active %}Pause{% else %}Resume{% endif %}
                 </button>
               </form>
@@ -89,66 +164,386 @@
       </table>
     </div>
   </div>
+
+  <!-- Floating Action Button for 1-hand thumb reach (Mobile only) -->
+  <button onclick="document.getElementById('add-source-modal').classList.remove('hidden')"
+          class="fab-thumb md:hidden w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center text-2xl font-bold shadow-xl active:scale-90 transition"
+          aria-label="Add Source">
+    ＋
+  </button>
 </div>
 
-<!-- Add Source Modal -->
-<div id="add-source-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
-  <div class="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-xl space-y-4">
-    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-      <h2 class="text-sm font-bold text-slate-900">Add Information Source</h2>
-      <button onclick="document.getElementById('add-source-modal').classList.add('hidden')" class="text-slate-400 hover:text-slate-700 text-lg leading-none">&times;</button>
+<!-- Add Source Modal (Responsive with Pinned Sticky Footer) -->
+<div id="add-source-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 hidden">
+  <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl sm:max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    
+    <!-- Modal Header (Always pinned at top) -->
+    <div class="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
+      <div>
+        <h2 class="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-1.5">
+          <span>＋</span>
+          <span>Add Information Source</span>
+        </h2>
+        <p class="text-[11px] text-slate-500 mt-0.5">Configure web portals, news feeds, Telegram channels, or Facebook pages</p>
+      </div>
+      <button type="button" onclick="document.getElementById('add-source-modal').classList.add('hidden')" class="p-1 rounded-lg text-slate-400 hover:text-slate-700 text-xl leading-none">&times;</button>
     </div>
     
-    <form method="POST" class="space-y-3.5 text-xs">
+    <!-- Form with Scrollable Body & Pinned Footer -->
+    <form method="POST" id="add-source-form" class="flex flex-col flex-1 overflow-hidden text-xs">
       {% csrf_token %}
       <input type="hidden" name="action" value="add_source">
 
-      <div>
-        <label class="block text-slate-700 font-medium mb-1">Source Name</label>
-        <input type="text" name="name" required placeholder="e.g. Ethiopia Tenders Channel" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
-      </div>
-
-      <div>
-        <label class="block text-slate-700 font-medium mb-1">Connector</label>
-        <select name="connector_id" required class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
-          {% for conn in connectors %}
-          <option value="{{ conn.id }}">{{ conn.name }} ({{ conn.get_connector_type_display }})</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div>
-        <label class="block text-slate-700 font-medium mb-1">Source Type</label>
-        <select name="source_type" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
-          <option value="channel">Telegram Channel</option>
-          <option value="group">Telegram Group</option>
-          <option value="page">Facebook / LinkedIn Page</option>
-          <option value="website">Website Portal</option>
-          <option value="feed">RSS / Atom Feed</option>
-        </select>
-      </div>
-
-      <div>
-        <label class="block text-slate-700 font-medium mb-1">Endpoint URL or Identifier</label>
-        <input type="text" name="endpoint_url" required placeholder="e.g. @ethio_tenders, Page ID, or https://.../feed.xml" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-mono focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
-      </div>
-
-      <div class="grid grid-cols-2 gap-3">
+      <!-- Scrollable Form Body -->
+      <div id="modal-form-scroll-body" class="overflow-y-auto flex-1 p-4 sm:p-6 space-y-4">
         <div>
-          <label class="block text-slate-700 font-medium mb-1">Frequency (minutes)</label>
-          <input type="number" name="frequency" value="30" min="5" max="1440" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
+          <label class="block text-slate-700 font-semibold mb-1">Source Name</label>
+          <input type="text" name="name" required placeholder="e.g. MOH Ethiopia News or Ethio Tenders" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
         </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-700 font-semibold mb-1">Connector</label>
+            <select name="connector_id" required class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
+              {% for conn in connectors %}
+              <option value="{{ conn.id }}">{{ conn.name }} ({{ conn.get_connector_type_display }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-slate-700 font-semibold mb-1">Source Type</label>
+            <select name="source_type" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
+              <option value="website">Website Portal</option>
+              <option value="feed">RSS / Atom Feed</option>
+              <option value="channel">Telegram Channel</option>
+              <option value="group">Telegram Group</option>
+              <option value="page">Facebook / LinkedIn Page</option>
+            </select>
+          </div>
+        </div>
+
         <div>
-          <label class="block text-slate-700 font-medium mb-1">Priority (1-5)</label>
-          <input type="number" name="priority" value="3" min="1" max="5" class="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
+          <label class="block text-slate-700 font-semibold mb-1">Endpoint URL or Identifier</label>
+          <input type="text" name="endpoint_url" required placeholder="e.g. https://www.moh.gov.et/articles-2-col?page=1 or @channel" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-mono focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-700 font-semibold mb-1">Frequency (minutes)</label>
+            <input type="number" name="frequency" value="30" min="5" max="1440" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
+          </div>
+          <div>
+            <label class="block text-slate-700 font-semibold mb-1">Priority (1-5)</label>
+            <input type="number" name="priority" value="3" min="1" max="5" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition">
+          </div>
+        </div>
+
+        <!-- Advanced Web Scraping Options (For custom websites like MOH) -->
+        <details class="group rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 text-xs">
+          <summary class="font-bold text-slate-700 cursor-pointer flex items-center justify-between select-none">
+            <span class="inline-flex items-center gap-1.5">
+              <span>⚙️</span>
+              <span>Web Scraper Selectors (Optional for custom portals)</span>
+            </span>
+            <span class="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+          <p class="text-[11px] text-slate-500 mt-1 mb-2.5 leading-relaxed">
+            For card-based portals without RSS (e.g. MOH, custom tenders).
+          </p>
+
+          <div class="space-y-3 pt-2 border-t border-slate-200/80">
+            <div>
+              <label class="block text-slate-700 font-semibold mb-1">Item Card CSS Selector</label>
+              <input type="text" id="modal-item-selector" name="item_selector" placeholder="e.g. .views-row or article or .tender-card" class="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono text-xs focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
+              <span class="text-[10px] text-slate-400 block mt-0.5">Identifies each news card on the listing page (e.g. <code>.views-row</code> for MOH).</span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-slate-700 font-semibold mb-1">Link Selector (Optional)</label>
+                <input type="text" id="modal-link-selector" name="link_selector" placeholder="e.g. a or h5 a" class="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono text-xs focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
+              </div>
+              <div>
+                <label class="block text-slate-700 font-semibold mb-1">Max Pages to Crawl</label>
+                <input type="number" id="modal-max-pages" name="max_pages" value="1" min="1" max="10" class="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono text-xs focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
+              </div>
+            </div>
+
+            <div class="space-y-1.5 pt-1">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="modal-crawl-detail" name="crawl_detail" checked class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                <span class="text-slate-700 font-medium text-[11px]">Auto-crawl detail page (fetches full article &amp; high-res images)</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="modal-render-js" name="render_js" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                <span class="text-slate-700 font-medium text-[11px]">Render dynamic JavaScript (Playwright)</span>
+              </label>
+            </div>
+          </div>
+        </details>
+
+        <!-- Live Test Output Box inside Modal (Scrollable with max height) -->
+        <div id="modal-test-preview-box" class="hidden rounded-xl border border-slate-200 bg-slate-50/90 p-3.5 space-y-2 text-xs max-h-80 overflow-y-auto">
+          <!-- Injected via testSourceFromModal() -->
         </div>
       </div>
 
-      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
-        <button type="button" onclick="document.getElementById('add-source-modal').classList.add('hidden')" class="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 font-medium shadow-2xs transition">Cancel</button>
-        <button type="submit" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs transition">Save Source</button>
+      <!-- Pinned / Sticky Modal Footer (Always visible, never pushed off screen) -->
+      <div class="p-3.5 sm:p-4 border-t border-slate-200 bg-slate-50/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <button type="button" onclick="testSourceFromModal()" id="btn-modal-test" class="px-3.5 py-2.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold shadow-2xs transition inline-flex items-center gap-1.5 touch-target">
+          <span>🧪</span>
+          <span>Test Selectors &amp; Preview</span>
+        </button>
+
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="document.getElementById('add-source-modal').classList.add('hidden')" class="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold shadow-2xs transition touch-target">
+            Cancel
+          </button>
+          <button type="submit" id="btn-modal-save" class="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-sm transition touch-target flex items-center gap-1.5">
+            <span>✓</span>
+            <span>Save Source</span>
+          </button>
+        </div>
       </div>
     </form>
   </div>
 </div>
+
+<!-- ================================================================ -->
+<!-- Live Source Extraction Inspection Modal -->
+<!-- ================================================================ -->
+<div id="inspect-source-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 hidden">
+  <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    
+    <!-- Modal Header -->
+    <div class="p-4 sm:p-5 border-b border-slate-100 flex items-start justify-between gap-3 bg-slate-50/50">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="text-base">🔍</span>
+          <h2 class="text-sm sm:text-base font-bold text-slate-900">Live Scraper Inspector</h2>
+        </div>
+        <p id="inspect-source-title" class="text-xs font-semibold text-slate-700 mt-1">Source Name</p>
+        <p id="inspect-source-url" class="text-[11px] font-mono text-slate-400 truncate max-w-md mt-0.5"></p>
+      </div>
+      <button onclick="document.getElementById('inspect-source-modal').classList.add('hidden')" class="p-1 rounded-lg text-slate-400 hover:text-slate-700 text-xl leading-none">&times;</button>
+    </div>
+
+    <!-- Modal Body -->
+    <div id="inspect-source-body" class="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
+      <!-- Injected dynamically -->
+    </div>
+
+    <!-- Modal Footer -->
+    <div class="p-3.5 sm:p-4 border-t border-slate-100 bg-slate-50/80 flex items-center justify-between">
+      <span class="text-[11px] text-slate-500">Live test extracts up to 4 items without writing to DB.</span>
+      <button type="button" onclick="document.getElementById('inspect-source-modal').classList.add('hidden')" class="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold transition">
+        Close
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function renderPreviewHTML(data) {
+    if (data.status !== 'ok') {
+      return `
+        <div class="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-1.5">
+          <div class="font-bold flex items-center gap-1.5 text-sm">
+            <span>❌ Extraction Failed</span>
+          </div>
+          <p class="font-mono text-xs bg-white/70 p-2.5 rounded-lg border border-rose-200 break-words">${escapeHtml(data.message || 'Unknown extraction error')}</p>
+          <p class="text-[11px] text-rose-700 mt-1">Tip: Check if the target site is reachable, or refine your Item Card Selector (e.g. <code>.views-row</code>, <code>article</code>).</p>
+        </div>
+      `;
+    }
+
+    if (!data.items || data.items.length === 0) {
+      return `
+        <div class="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs space-y-1.5">
+          <p class="font-bold text-sm">⚠️ No items matched the selector: <code class="bg-amber-100 px-1.5 py-0.5 rounded font-mono">${escapeHtml(data.selector_used)}</code></p>
+          <p class="text-xs text-amber-700">The website responded, but no HTML elements matched this selector.</p>
+          <p class="text-[11px] text-amber-600">Suggestions: Try inspecting the page HTML for container classes like <code>.views-row</code>, <code>.card</code>, <code>article</code>, or <code>.news-item</code>.</p>
+        </div>
+      `;
+    }
+
+    let html = `
+      <div class="space-y-3">
+        <div class="flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex-wrap gap-2">
+          <div class="flex items-center gap-1.5 font-bold">
+            <span class="text-emerald-600 text-sm">✓</span>
+            <span>Successfully extracted ${data.count} items (${data.duration_seconds}s)</span>
+          </div>
+          <span class="font-mono text-[11px] bg-white/90 px-2 py-0.5 rounded border border-emerald-200 text-emerald-800">
+            Selector: ${escapeHtml(data.selector_used)}
+          </span>
+        </div>
+        <div class="space-y-3">
+    `;
+
+    data.items.forEach((it, idx) => {
+      html += `
+        <div class="p-3.5 rounded-xl bg-white border border-slate-200 shadow-2xs space-y-2 text-xs">
+          <div class="flex items-start justify-between gap-2.5">
+            <div class="font-bold text-slate-900 text-sm leading-snug flex-1">
+              <span class="text-blue-600 font-mono text-xs mr-1">#${idx + 1}</span>
+              ${escapeHtml(it.title)}
+            </div>
+            ${it.is_detail_crawled ? 
+              `<span class="shrink-0 text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full" title="Detail page was visited and full text extracted">✓ Detail Scraped</span>` : 
+              `<span class="shrink-0 text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-0.5 rounded-full">Snippet Only</span>`
+            }
+          </div>
+
+          <div class="text-xs text-slate-700 bg-slate-50/80 p-2.5 rounded-xl border border-slate-100 leading-relaxed font-sans">
+            ${escapeHtml(it.content_snippet)}
+          </div>
+
+          <div class="flex items-center justify-between text-xs pt-1 border-t border-slate-100 flex-wrap gap-1">
+            <a href="${escapeHtml(it.url)}" target="_blank" class="text-blue-600 hover:text-blue-800 font-mono text-[11px] truncate max-w-[280px] inline-flex items-center gap-1">
+              <span>🔗 ${escapeHtml(it.url)}</span>
+              <span>↗</span>
+            </a>
+            <span class="text-slate-400 font-mono text-[10px]">
+              ${it.content_length} chars${it.media_count > 0 ? ` &bull; 🖼️ ${it.media_count} media` : ''}
+            </span>
+          </div>
+
+          ${it.media_urls && it.media_urls.length > 0 ? `
+            <div class="flex items-center gap-2 pt-1.5 overflow-x-auto pb-1">
+              ${it.media_urls.map(img => `
+                <a href="${escapeHtml(img)}" target="_blank" class="shrink-0 w-14 h-14 rounded-xl border border-slate-200 overflow-hidden bg-slate-100 flex items-center justify-center hover:opacity-90 transition">
+                  <img src="${escapeHtml(img)}" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'">
+                </a>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    });
+
+    html += `</div></div>`;
+    return html;
+  }
+
+  // 1. Test from inside the "Add Source" Modal
+  async function testSourceFromModal() {
+    const btn = document.getElementById('btn-modal-test');
+    const previewBox = document.getElementById('modal-test-preview-box');
+    const endpointInput = document.querySelector('#add-source-modal input[name="endpoint_url"]');
+    const endpoint = endpointInput ? endpointInput.value.trim() : '';
+    const itemSelector = document.getElementById('modal-item-selector')?.value.trim() || '';
+    const linkSelector = document.getElementById('modal-link-selector')?.value.trim() || '';
+    const maxPages = document.getElementById('modal-max-pages')?.value || '1';
+    const crawlDetail = document.getElementById('modal-crawl-detail')?.checked ? 'on' : '';
+    const renderJs = document.getElementById('modal-render-js')?.checked ? 'on' : '';
+    const sourceType = document.querySelector('#add-source-modal select[name="source_type"]')?.value || 'website';
+
+    if (!endpoint) {
+      alert('Please enter an Endpoint URL first.');
+      endpointInput?.focus();
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = `<span class="inline-block animate-spin">⏳</span> Connecting & Extracting...`;
+    previewBox.classList.remove('hidden');
+    previewBox.innerHTML = `
+      <div class="p-6 text-center text-slate-500 space-y-2">
+        <div class="inline-block w-6 h-6 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
+        <p class="text-xs font-semibold text-slate-700">Connecting to ${escapeHtml(endpoint)}...</p>
+        <p class="text-[11px] text-slate-400">Testing selectors & crawling detail pages. This usually takes 2-4 seconds.</p>
+      </div>
+    `;
+
+    const formData = new FormData();
+    formData.append('endpoint_url', endpoint);
+    formData.append('item_selector', itemSelector);
+    formData.append('link_selector', linkSelector);
+    formData.append('max_pages', maxPages);
+    formData.append('crawl_detail', crawlDetail);
+    formData.append('render_js', renderJs);
+    formData.append('source_type', sourceType);
+
+    try {
+      const resp = await fetch('{% url "dashboard_source_preview" %}', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: formData
+      });
+      const data = await resp.json();
+      previewBox.innerHTML = renderPreviewHTML(data);
+      const scrollBody = document.getElementById('modal-form-scroll-body');
+      if (scrollBody) {
+        setTimeout(() => {
+          scrollBody.scrollTo({ top: previewBox.offsetTop - 20, behavior: 'smooth' });
+        }, 50);
+      }
+    } catch (err) {
+      previewBox.innerHTML = `
+        <div class="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs">
+          <p class="font-bold">❌ Connection Request Failed</p>
+          <p class="text-xs mt-1 font-mono">${escapeHtml(err.message || 'Network error')}</p>
+        </div>
+      `;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `<span>🧪</span><span>Test Selectors &amp; Preview</span>`;
+    }
+  }
+
+  // 2. Inspect an existing source on the dashboard
+  async function inspectSource(sourceId, name, endpoint, selector) {
+    const modal = document.getElementById('inspect-source-modal');
+    const titleEl = document.getElementById('inspect-source-title');
+    const urlEl = document.getElementById('inspect-source-url');
+    const bodyEl = document.getElementById('inspect-source-body');
+
+    titleEl.textContent = name;
+    urlEl.textContent = endpoint + (selector ? ` (Selector: ${selector})` : '');
+    bodyEl.innerHTML = `
+      <div class="p-12 text-center text-slate-500 space-y-3">
+        <div class="inline-block w-8 h-8 border-3 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
+        <p class="text-sm font-semibold text-slate-700">Connecting to live source...</p>
+        <p class="text-xs text-slate-400">Running dry extraction on ${escapeHtml(endpoint)}...</p>
+      </div>
+    `;
+    modal.classList.remove('hidden');
+
+    const formData = new FormData();
+    formData.append('source_id', sourceId);
+
+    try {
+      const resp = await fetch('{% url "dashboard_source_preview" %}', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: formData
+      });
+      const data = await resp.json();
+      bodyEl.innerHTML = renderPreviewHTML(data);
+    } catch (err) {
+      bodyEl.innerHTML = `
+        <div class="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs">
+          <p class="font-bold">❌ Failed to inspect live source</p>
+          <p class="text-xs mt-1 font-mono">${escapeHtml(err.message || 'Network error')}</p>
+        </div>
+      `;
+    }
+  }
+</script>
 {% endblock %}

@@ -7,7 +7,9 @@ Callers pass a list of PublishChannel objects; this module handles routing.
 import json
 import logging
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, List
+from django import db
 from django.utils import timezone
 from .models import Webhook, WebhookDelivery, Publication, PublishChannel
 from intelligence.models import CollectedItem
@@ -25,12 +27,19 @@ class TelegramDispatcher:
 
     @classmethod
     def send(cls, item: CollectedItem, channel: PublishChannel, force: bool = False) -> bool:
-        """Post item to a single Telegram PublishChannel. Returns True on success."""
+        """Post item to a single Telegram PublishChannel (Channel or Group). Returns True on success."""
         bot_token = channel.bot_token
-        chat_id   = channel.chat_id
+        chat_id   = str(channel.chat_id or "").strip()
+        topic_id  = channel.topic_id
         if not bot_token or not chat_id:
             logger.warning(f"Telegram channel '{channel.name}' missing bot_token or chat_id.")
             return False
+
+        # Clean public link to @handle if needed
+        if chat_id.startswith('https://t.me/'):
+            chat_id = '@' + chat_id.replace('https://t.me/', '').rstrip('/')
+        elif chat_id.startswith('t.me/'):
+            chat_id = '@' + chat_id.replace('t.me/', '').rstrip('/')
 
         # Relevance gate
         score = item.ai_analysis.relevance_score if hasattr(item, 'ai_analysis') and item.ai_analysis else 50
@@ -41,14 +50,26 @@ class TelegramDispatcher:
         body = cls._build_body(item)
         images = [u for u in (item.media_urls or []) if u and str(u).startswith('http')]
 
-        ok = cls._deliver(item, bot_token, chat_id, body, images)
+        ok, err_desc = cls._deliver(item, bot_token, chat_id, body, images, topic_id=topic_id)
+
+        is_group = channel.channel_type == PublishChannel.TYPE_TELEGRAM_GROUP
+        dest_prefix = "Group" if is_group else "Channel"
+        topic_str = f" [Topic #{topic_id}]" if topic_id else ""
+        pub_channel = 'telegram_group' if is_group else 'telegram'
+
         Publication.objects.create(
             item=item,
-            channel='telegram',
-            destination=f"{channel.name} ({chat_id})",
+            channel=pub_channel,
+            destination=f"{dest_prefix}: {channel.name} ({chat_id}){topic_str}",
             status='published' if ok else 'failed',
-            formatted_payload={'channel_id': channel.id, 'channel_name': channel.name, 'score': score}
+            formatted_payload={'channel_id': channel.id, 'channel_name': channel.name, 'score': score, 'topic_id': topic_id, 'error': err_desc}
         )
+
+        if not ok and err_desc:
+            channel.last_test_ok = False
+            channel.last_test_message = f"Post failed: {err_desc}"[:300]
+            channel.save(update_fields=['last_test_ok', 'last_test_message'])
+
         return ok
 
     @classmethod
@@ -67,11 +88,15 @@ class TelegramDispatcher:
         return "\n".join(parts)
 
     @classmethod
-    def _deliver(cls, item, bot_token, chat_id, body, images):
+    def _deliver(cls, item, bot_token, chat_id, body, images, topic_id=None) -> tuple:
+        last_err = ""
         if images:
             if len(images) == 1:
-                ok = cls._send_photo(bot_token, chat_id, images[0], body[:cls.MAX_CAPTION], item)
-                return ok if ok else cls._send_text(bot_token, chat_id, body, item)
+                ok, err = cls._send_photo(bot_token, chat_id, images[0], body[:cls.MAX_CAPTION], item, topic_id=topic_id)
+                if ok:
+                    return True, ""
+                last_err = err
+                return cls._send_text(bot_token, chat_id, body, item, topic_id=topic_id)
             # Media group
             media_group = [
                 {'type': 'photo', 'media': url, **(
@@ -80,55 +105,89 @@ class TelegramDispatcher:
                 for i, url in enumerate(images[:10])
             ]
             try:
+                payload = {'chat_id': chat_id, 'media': media_group}
+                if topic_id:
+                    try:
+                        payload['message_thread_id'] = int(topic_id)
+                    except (ValueError, TypeError):
+                        pass
                 resp = requests.post(
                     f"https://api.telegram.org/bot{bot_token}/sendMediaGroup",
-                    json={'chat_id': chat_id, 'media': media_group}, timeout=15
+                    json=payload, timeout=15
                 )
                 if resp.status_code == 200 and resp.json().get('ok'):
                     logger.info(f"TG media group ({len(images)}) sent for Item #{item.id}")
-                    return True
+                    return True, ""
+                else:
+                    last_err = resp.json().get('description', resp.text[:120])
             except Exception as e:
+                last_err = str(e)
                 logger.warning(f"sendMediaGroup exception: {e}")
             # Fallback to single photo
-            ok = cls._send_photo(bot_token, chat_id, images[0], body[:cls.MAX_CAPTION], item)
-            return ok if ok else cls._send_text(bot_token, chat_id, body, item)
-        return cls._send_text(bot_token, chat_id, body, item)
+            ok, err = cls._send_photo(bot_token, chat_id, images[0], body[:cls.MAX_CAPTION], item, topic_id=topic_id)
+            if ok:
+                return True, ""
+            if err:
+                last_err = err
+            return cls._send_text(bot_token, chat_id, body, item, topic_id=topic_id)
+        return cls._send_text(bot_token, chat_id, body, item, topic_id=topic_id)
 
     @classmethod
-    def _send_text(cls, bot_token, chat_id, text, item):
+    def _send_text(cls, bot_token, chat_id, text, item, topic_id=None) -> tuple:
         endpoint = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         for chunk in cls._split(text, cls.MAX_TEXT):
+            payload = {
+                'chat_id': chat_id,
+                'text': chunk,
+                'parse_mode': 'HTML',
+                'disable_web_page_preview': False
+            }
+            if topic_id:
+                try:
+                    payload['message_thread_id'] = int(topic_id)
+                except (ValueError, TypeError):
+                    pass
             try:
-                resp = requests.post(endpoint, json={'chat_id': chat_id, 'text': chunk,
-                                                      'parse_mode': 'HTML',
-                                                      'disable_web_page_preview': False}, timeout=10)
+                resp = requests.post(endpoint, json=payload, timeout=10)
                 if not (resp.status_code == 200 and resp.json().get('ok')):
-                    resp = requests.post(endpoint, json={'chat_id': chat_id, 'text': chunk,
-                                                          'disable_web_page_preview': False}, timeout=10)
+                    # Fallback without HTML parse mode in case of malformed tag
+                    plain_payload = dict(payload)
+                    plain_payload.pop('parse_mode', None)
+                    resp = requests.post(endpoint, json=plain_payload, timeout=10)
                 if not (resp.status_code == 200 and resp.json().get('ok')):
-                    logger.warning(f"TG sendMessage failed for #{item.id}: {resp.text[:200]}")
-                    return False
+                    err_desc = resp.json().get('description', resp.text[:200])
+                    logger.warning(f"TG sendMessage failed for #{item.id}: {err_desc}")
+                    return False, err_desc
             except Exception as e:
                 logger.error(f"TG sendMessage exception for #{item.id}: {e}")
-                return False
+                return False, str(e)
         logger.info(f"TG text posted for Item #{item.id}")
-        return True
+        return True, ""
 
     @classmethod
-    def _send_photo(cls, bot_token, chat_id, photo_url, caption, item):
+    def _send_photo(cls, bot_token, chat_id, photo_url, caption, item, topic_id=None) -> tuple:
         endpoint = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+        last_err = ""
         for parse_mode in ['HTML', None]:
             try:
                 payload = {'chat_id': chat_id, 'photo': photo_url, 'caption': caption}
                 if parse_mode:
                     payload['parse_mode'] = parse_mode
+                if topic_id:
+                    try:
+                        payload['message_thread_id'] = int(topic_id)
+                    except (ValueError, TypeError):
+                        pass
                 resp = requests.post(endpoint, json=payload, timeout=12)
                 if resp.status_code == 200 and resp.json().get('ok'):
                     logger.info(f"TG photo sent for Item #{item.id}")
-                    return True
+                    return True, ""
+                else:
+                    last_err = resp.json().get('description', resp.text[:120])
             except Exception as e:
+                last_err = str(e)
                 logger.warning(f"TG sendPhoto exception: {e}")
-        return False
+        return False, last_err
 
     @staticmethod
     def _split(text, limit):
@@ -283,23 +342,42 @@ class PublishingManager:
                              channels: List[PublishChannel],
                              force: bool = True) -> Dict[str, bool]:
         """
-        Dispatch item to a list of PublishChannel objects.
+        Dispatch item to a list of PublishChannel objects in parallel.
         Returns {channel_name: bool} result map.
         """
-        results = {}
-        for ch in channels:
+        if not channels:
+            return {}
+
+        def _dispatch_one(ch: PublishChannel) -> tuple[str, bool]:
+            db.close_old_connections()
             if not ch.is_active:
-                results[ch.name] = False
-                continue
-            if ch.channel_type == PublishChannel.TYPE_TELEGRAM:
-                results[ch.name] = TelegramDispatcher.send(item, ch, force=force)
+                return ch.name, False
+            if ch.channel_type in (PublishChannel.TYPE_TELEGRAM, PublishChannel.TYPE_TELEGRAM_GROUP):
+                return ch.name, TelegramDispatcher.send(item, ch, force=force)
             elif ch.channel_type == PublishChannel.TYPE_FACEBOOK:
-                results[ch.name] = FacebookDispatcher.send(item, ch)
+                return ch.name, FacebookDispatcher.send(item, ch)
             elif ch.channel_type == PublishChannel.TYPE_LINKEDIN:
-                results[ch.name] = LinkedInDispatcher.send(item, ch)
+                return ch.name, LinkedInDispatcher.send(item, ch)
             else:
                 logger.warning(f"Unknown channel type: {ch.channel_type}")
-                results[ch.name] = False
+                return ch.name, False
+
+        if len(channels) == 1:
+            name, ok = _dispatch_one(channels[0])
+            return {name: ok}
+
+        results: Dict[str, bool] = {}
+        max_workers = min(len(channels), 4)  # cPanel-safe: 4 channels max parallel
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {executor.submit(_dispatch_one, ch): ch for ch in channels}
+            for future in as_completed(future_map):
+                try:
+                    name, ok = future.result()
+                    results[name] = ok
+                except Exception as exc:
+                    ch = future_map[future]
+                    logger.error(f"Channel '{ch.name}' dispatch raised: {exc}")
+                    results[ch.name] = False
         return results
 
     @classmethod
@@ -315,14 +393,67 @@ class PublishingManager:
         Returns (ok: bool, message: str).
         """
         try:
-            if channel.channel_type == PublishChannel.TYPE_TELEGRAM:
+            if channel.channel_type in (PublishChannel.TYPE_TELEGRAM, PublishChannel.TYPE_TELEGRAM_GROUP):
                 token = channel.bot_token
+                chat_id = str(channel.chat_id or "").strip()
+                topic_id = channel.topic_id
                 if not token:
                     return False, "Missing bot_token"
+                if chat_id.startswith('https://t.me/'):
+                    chat_id = '@' + chat_id.replace('https://t.me/', '').rstrip('/')
+                elif chat_id.startswith('t.me/'):
+                    chat_id = '@' + chat_id.replace('t.me/', '').rstrip('/')
+
                 resp = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=8)
                 ok = resp.status_code == 200 and resp.json().get('ok')
-                bot_name = resp.json().get('result', {}).get('username', '?') if ok else '?'
-                msg = f"Connected as @{bot_name}" if ok else f"Auth failed: {resp.text[:120]}"
+                bot_info = resp.json().get('result', {}) if ok else {}
+                bot_id = bot_info.get('id')
+                bot_name = bot_info.get('username', '?')
+                if not ok:
+                    return False, f"Bot auth failed: {resp.text[:120]}"
+
+                if chat_id:
+                    chat_resp = requests.get(
+                        f"https://api.telegram.org/bot{token}/getChat",
+                        params={'chat_id': chat_id},
+                        timeout=8
+                    )
+                    if chat_resp.status_code == 200 and chat_resp.json().get('ok'):
+                        chat_info = chat_resp.json().get('result', {})
+                        chat_title = chat_info.get('title') or chat_info.get('username') or chat_id
+                        chat_type = chat_info.get('type', 'chat').title()
+                        topic_str = f" [Topic #{topic_id}]" if topic_id else ""
+
+                        # Check bot's admin membership and rights in this chat
+                        if bot_id:
+                            m_resp = requests.get(
+                                f"https://api.telegram.org/bot{token}/getChatMember",
+                                params={'chat_id': chat_id, 'user_id': bot_id},
+                                timeout=8
+                            )
+                            if m_resp.status_code == 200 and m_resp.json().get('ok'):
+                                m_info = m_resp.json().get('result', {})
+                                m_status = m_info.get('status')
+                                if m_status not in ('administrator', 'creator'):
+                                    ok = False
+                                    msg = f"Connected to {chat_type} '{chat_title}', BUT @{bot_name} is only a '{m_status}'. Add @{bot_name} as an Administrator with 'Post Messages' enabled!"
+                                elif m_status == 'administrator' and m_info.get('can_post_messages') is False:
+                                    ok = False
+                                    msg = f"Connected to {chat_type} '{chat_title}', BUT @{bot_name} does not have 'Post Messages' admin permission! Enable it in Telegram."
+                                else:
+                                    ok = True
+                                    msg = f"Connected as @{bot_name} (Admin with Post rights) to {chat_type}: '{chat_title}'{topic_str}"
+                            else:
+                                ok = True
+                                msg = f"Connected as @{bot_name} to {chat_type}: '{chat_title}'{topic_str} (Ensure @{bot_name} is added as Admin)"
+                        else:
+                            ok = True
+                            msg = f"Connected as @{bot_name} to {chat_type}: '{chat_title}'{topic_str}"
+                    else:
+                        err_desc = chat_resp.json().get('description', chat_resp.text[:100]) if chat_resp.status_code in (400, 403) else chat_resp.text[:100]
+                        msg = f"Connected as @{bot_name}, but chat check failed ({err_desc}). Ensure bot is added to the {channel.get_channel_type_display()}."
+                else:
+                    msg = f"Connected as @{bot_name} (No Chat ID specified)"
 
             elif channel.channel_type == PublishChannel.TYPE_FACEBOOK:
                 token   = channel.page_access_token
@@ -411,8 +542,27 @@ class PublishingManager:
     @classmethod
     def dispatch_active_webhooks(cls, item: CollectedItem):
         payload = cls.format_item_payload(item)
-        for wh in Webhook.objects.filter(is_active=True):
-            cls.dispatch_webhook(wh, 'item.published', payload)
+        webhooks = list(Webhook.objects.filter(is_active=True))
+        if not webhooks:
+            return
+
+        def _fire(wh) -> bool:
+            db.close_old_connections()
+            return cls.dispatch_webhook(wh, 'item.published', payload)
+
+        if len(webhooks) == 1:
+            _fire(webhooks[0])
+            return
+
+        max_workers = min(len(webhooks), 4)  # cPanel-safe: 4 webhooks max parallel
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_fire, wh): wh for wh in webhooks}
+            for future in as_completed(futures):
+                wh = futures[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    logger.error(f"Webhook '{wh.target_url}' dispatch raised: {exc}")
 
     # Backward-compat shim for old views / tests that call publish_item
     @classmethod

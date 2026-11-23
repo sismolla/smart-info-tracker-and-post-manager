@@ -1,5 +1,6 @@
 import hashlib
 from django.db import models
+from django.db.models import F
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from connectors.models import InformationSource, CollectionRun
@@ -151,8 +152,11 @@ class ExtractedEntity(models.Model):
     currency = models.CharField(max_length=20, default='ETB', blank=True)
     
     # Standardized Dates & Calendar Disambiguation
+    posted_date_iso = models.CharField(max_length=50, null=True, blank=True, help_text="Standardized ISO Gregorian publication date")
+    posted_date_original = models.CharField(max_length=150, null=True, blank=True, help_text="Original posted date as written in source text/HTML")
     deadline_iso = models.CharField(max_length=50, null=True, blank=True, help_text="Standardized ISO Gregorian deadline")
     deadline_original = models.CharField(max_length=150, null=True, blank=True, help_text="Original deadline as written (e.g. Ethiopian calendar)")
+    is_expired = models.BooleanField(default=False, help_text="Flag indicating whether opportunity deadline has passed")
     
     # Legacy / convenience properties
     price = models.CharField(max_length=100, null=True, blank=True)
@@ -274,18 +278,25 @@ class AIDailyUsageTracker(models.Model):
     @classmethod
     def record_usage(cls, input_tokens: int, output_tokens: int):
         today = timezone.now().date()
-        tracker, _ = cls.objects.get_or_create(date=today)
-        tracker.total_calls += 1
-        tracker.total_input_tokens += input_tokens
-        tracker.total_output_tokens += output_tokens
-        
+
+        # Ensure the row exists (safe even under concurrency due to unique=True on date)
+        cls.objects.get_or_create(date=today)
+
         # Gemini 1.5 Flash pricing: $0.075 / 1M input, $0.30 / 1M output
         call_cost = (input_tokens * 0.000000075) + (output_tokens * 0.00000030)
-        tracker.estimated_cost_usd = float(tracker.estimated_cost_usd) + call_cost
-        
+
+        # Atomic database-level increments — no race condition
+        cls.objects.filter(date=today).update(
+            total_calls=F('total_calls') + 1,
+            total_input_tokens=F('total_input_tokens') + input_tokens,
+            total_output_tokens=F('total_output_tokens') + output_tokens,
+            estimated_cost_usd=F('estimated_cost_usd') + call_cost,
+        )
+
+        # Circuit-breaker check: re-fetch to get the post-update value.
+        # A small race here is acceptable (non-critical, per design).
         from django.conf import settings
         max_cost = getattr(settings, 'AI_DAILY_SPEND_LIMIT_USD', 2.00)
-        if float(tracker.estimated_cost_usd) >= max_cost:
-            tracker.is_circuit_breaker_tripped = True
-            
-        tracker.save()
+        updated = cls.objects.filter(date=today).values('estimated_cost_usd').first()
+        if updated and float(updated['estimated_cost_usd']) >= max_cost:
+            cls.objects.filter(date=today).update(is_circuit_breaker_tripped=True)

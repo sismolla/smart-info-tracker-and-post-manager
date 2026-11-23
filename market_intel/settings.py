@@ -197,6 +197,17 @@ LINKEDIN_ACCESS_TOKEN = os.getenv('LINKEDIN_ACCESS_TOKEN', '')
 LINKEDIN_ORG_URN = os.getenv('LINKEDIN_ORG_URN', '')
 
 # Logging configuration
+_LOG_DIR = os.path.join(BASE_DIR, 'logs')
+_LOG_HANDLERS_EXTRA = {}
+if os.path.isdir(_LOG_DIR):
+    _LOG_HANDLERS_EXTRA['file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': os.path.join(_LOG_DIR, 'market_intel.log'),
+        'maxBytes': 5 * 1024 * 1024,  # 5 MB per file
+        'backupCount': 5,
+        'formatter': 'verbose',
+    }
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -211,16 +222,48 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
+        **_LOG_HANDLERS_EXTRA,
     },
     'root': {
-        'handlers': ['console'],
+        'handlers': list({'console', *_LOG_HANDLERS_EXTRA.keys()}),
         'level': 'INFO',
     },
     'loggers': {
         'market_intel': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
+            'handlers': list({'console', *_LOG_HANDLERS_EXTRA.keys()}),
+            'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
         },
     },
 }
+
+# ========================================================
+# Production Security Hardening (auto-activated when DEBUG=False)
+# ========================================================
+if not DEBUG:
+    # HTTPS / SSL enforcement
+    SECURE_SSL_REDIRECT = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+    # HSTS — 1 year, include subdomains
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
+    # Cookie security
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    CSRF_COOKIE_HTTPONLY = True
+
+    # Content-type sniffing protection
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_BROWSER_XSS_FILTER = True
+
+    # Clickjacking protection
+    X_FRAME_OPTIONS = 'DENY'
+
+    # Redirect to HTTPS in production only (cPanel Passenger handles SSL)
+    SECURE_REDIRECT_EXEMPT = [
+        r'^health/$',  # Allow health check without redirect loop
+    ]

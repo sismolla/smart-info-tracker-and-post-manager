@@ -21,6 +21,15 @@ os.chdir(str(CURRENT_DIR))
 # Set Django settings module
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'market_intel.settings')
 
+# PyMySQL compatibility shim — makes PyMySQL act as MySQLdb on hosts
+# where the C mysqlclient extension cannot be compiled (e.g. cPanel shared hosting).
+# Install with: pip install PyMySQL
+try:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+except ImportError:
+    pass  # mysqlclient (C extension) is used instead — that's fine too
+
 # Import Django WSGI application
 from django.core.wsgi import get_wsgi_application
 application = get_wsgi_application()

@@ -1,22 +1,37 @@
 # ==========================================
 # cPanel Apache / LiteSpeed Configuration
+# Domain: news.mesobordering.com
 # ==========================================
 
-# Enable Passenger
-PassengerAppRoot "/home/username/public_html"
-PassengerPython "/home/username/virtualenv/public_html/3.11/bin/python"
+# ---- Phusion Passenger / Python App ----
+# NOTE: cPanel auto-injects these lines via "Setup Python App".
+# Keep them here as a reference — cPanel will override with actual paths.
+PassengerAppRoot "/home/mesobord/public_html"
+PassengerPython "/home/mesobord/virtualenv/public_html/3.11/bin/python3.11"
 PassengerAppType wsgi
 PassengerStartupFile passenger_wsgi.py
+PassengerFriendlyErrorPages off
+PassengerMaxRequests 500
+PassengerMaxPoolSize 2
 
 # Prevent directory listings
 Options -Indexes
 
-# Static and Media routing handled by Apache directly
+# ---- Static & Media: Served directly by Apache (bypass Passenger) ----
 RewriteEngine On
 RewriteCond %{REQUEST_URI} ^/static/ [NC,OR]
 RewriteCond %{REQUEST_URI} ^/media/ [NC]
 RewriteRule ^ - [L]
 
-# Redirect HTTP to HTTPS
+# ---- Block access to sensitive files ----
+<FilesMatch "(\.env|\.env\.example|db\.sqlite3|market_intel\.sqlite3|\.gitignore|requirements\.txt)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block access to Python source, logs, and cache directories
+RedirectMatch 403 ^/(logs|__pycache__|scratch)/
+
+# ---- Redirect HTTP → HTTPS ----
 RewriteCond %{HTTPS} off
 RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]

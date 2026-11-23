@@ -23,9 +23,10 @@ class TelegramAlertDispatcher:
         from publishing.models import PublishChannel
         from publishing.publishers import TelegramDispatcher
 
-        # Prefer DB-managed channels
+        # Prefer DB-managed channels (both channels and groups)
         tg_channels = list(PublishChannel.objects.filter(
-            channel_type=PublishChannel.TYPE_TELEGRAM, is_active=True
+            channel_type__in=[PublishChannel.TYPE_TELEGRAM, PublishChannel.TYPE_TELEGRAM_GROUP],
+            is_active=True
         ).order_by('id'))
 
         if tg_channels:

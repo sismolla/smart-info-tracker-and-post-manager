@@ -3,6 +3,14 @@
 import os
 import sys
 
+# PyMySQL shim — required on cPanel shared hosting where mysqlclient C extension
+# cannot be compiled. Install with: pip install PyMySQL
+try:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+except ImportError:
+    pass  # mysqlclient C extension is available instead
+
 def main():
     """Run administrative tasks."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'market_intel.settings')

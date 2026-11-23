@@ -27,6 +27,17 @@ class PipelineEngine:
         ai_engine = AIEngine()
         analysis = ai_engine.analyze_item(item)
 
+        # Freshness Gate: Auto-drop items older than max_age_days (default 3 days)
+        max_age_days = (item.source.config or {}).get('max_age_days', 3) if item.source else 3
+        if item.published_at:
+            age_days = (timezone.now() - item.published_at).total_seconds() / 86400.0
+            if age_days > max_age_days:
+                item.status = 'rejected'
+                item.editorial_notes = f"Auto-dropped: Article is {round(age_days, 1)} days old (published {item.published_at.strftime('%Y-%m-%d')}), exceeding {max_age_days}-day limit."
+                item.save(update_fields=['status', 'editorial_notes'])
+                logger.info(f"Item #{item.id} auto-rejected: {round(age_days, 1)}d old exceeds {max_age_days}d limit.")
+                return item
+
         # 3. Step 3: Workflow Auto-Approval Check
         # Find workflow: prefer source-specific, then fall back to any active workflow
         if not workflow:
